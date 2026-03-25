@@ -1,6 +1,10 @@
 export type Config = {
   version: 1;
   projectsRoots: string[];
+  discovery: {
+    ignorePathPrefixes: string[];
+    preferPathPrefixes: string[];
+  };
   harnesses: {
     custom: CustomHarnessConfig[];
   };
@@ -50,6 +54,20 @@ export type DiscoveredSkill = {
   sourceType: 'repo-root' | 'nested';
   metadataName?: string;
   canonicalSlug: string;
+  contentHash: string;
+};
+
+export type SourceDiagnostic = {
+  slug: string;
+  severity: 'warning' | 'error';
+  resolution: 'resolved-by-preference' | 'unresolved';
+  chosenSourcePath?: string;
+  sourcePaths: string[];
+};
+
+export type SourceDiagnostics = {
+  warnings: SourceDiagnostic[];
+  errors: SourceDiagnostic[];
 };
 
 export type EntryInspection = {
@@ -89,6 +107,7 @@ export type SyncPlan = {
   changes: number;
   conflicts: number;
   ok: number;
+  sourceDiagnostics: SourceDiagnostics;
 };
 
 export type BackupManifest = {
@@ -114,7 +133,13 @@ export type BackupEntrySnapshot = {
   type: 'symlink' | 'directory' | 'file';
   linkTarget?: string;
   targetExists?: boolean;
-  materializedPath?: string;
+  targetType?: 'directory' | 'file';
+  skillFiles: BackupSkillFileSnapshot[];
+};
+
+export type BackupSkillFileSnapshot = {
+  relativePath: string;
+  content: string;
 };
 
 export type JsonValue =

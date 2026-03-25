@@ -1,7 +1,9 @@
 import { afterEach, expect, test } from 'bun:test';
+import { mkdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { buildSyncPlan, resolveInstallName } from '../../src/core/sync';
 import type { Config, DiscoveredSkill, HarnessDefinition, State } from '../../src/core/types';
-import { cleanup, makeFakeProjectsRoot } from '../support';
+import { cleanup, makeFakeProjectsRoot, writeText } from '../support';
 
 const tempPaths: string[] = [];
 
@@ -45,6 +47,10 @@ test('uses alias overrides and reports collisions', () => {
   const config: Config = {
     version: 1,
     projectsRoots: ['/tmp'],
+    discovery: {
+      ignorePathPrefixes: [],
+      preferPathPrefixes: [],
+    },
     harnesses: { custom: [] },
     aliases: {
       '/tmp/a': { harnesses: { codex: 'shared' } },
@@ -56,4 +62,47 @@ test('uses alias overrides and reports collisions', () => {
   expect(resolveInstallName(skillA, 'codex', config)).toBe('shared');
   const plan = buildSyncPlan([skillA, skillB], [harness], config, state);
   expect(plan.conflicts).toBe(1);
+});
+
+test('treats an unmanaged directory with matching SKILL.md as compatible', () => {
+  const { homeDir } = makeFakeProjectsRoot();
+  tempPaths.push(homeDir);
+  const harnessRoot = `${homeDir}/.hermes/skills`;
+  const destination = join(harnessRoot, 'prod');
+  mkdirSync(destination, { recursive: true });
+  writeText(join(destination, 'SKILL.md'), '---\nname: prod\ndescription: Test\n---\n\n# Prod\n');
+
+  const harness: HarnessDefinition = {
+    id: 'hermes',
+    label: 'Hermes',
+    rootPath: harnessRoot,
+    kind: 'built-in',
+    detected: true,
+    enabled: true,
+  };
+  const skill: DiscoveredSkill = {
+    sourceKey: `${homeDir}/prod-server`,
+    sourcePath: `${homeDir}/prod-server`,
+    skillFilePath: join(destination, 'SKILL.md'),
+    repoPath: `${homeDir}/prod-server`,
+    projectsRoot: homeDir,
+    sourceType: 'repo-root',
+    metadataName: 'prod',
+    canonicalSlug: 'prod',
+    contentHash: 'hash',
+  };
+  const config: Config = {
+    version: 1,
+    projectsRoots: [homeDir],
+    discovery: {
+      ignorePathPrefixes: [],
+      preferPathPrefixes: [],
+    },
+    harnesses: { custom: [] },
+    aliases: {},
+  };
+  const state: State = { version: 1, managedEntries: {} };
+  const plan = buildSyncPlan([skill], [harness], config, state);
+  expect(plan.conflicts).toBe(0);
+  expect(plan.ok).toBe(1);
 });

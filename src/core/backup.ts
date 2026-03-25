@@ -1,13 +1,12 @@
-import { cpSync, existsSync, lstatSync, readdirSync, readlinkSync, symlinkSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
-import type { BackupEntrySnapshot, BackupHarnessSnapshot, BackupManifest, HarnessDefinition, RuntimeContext, State } from './types';
-import { copyMaterialized, ensureDir, inspectEntry, pathOwnsEntry, readJsonFile, removePath, timestampId, writeJsonFile } from './utils';
+import type { BackupEntrySnapshot, BackupHarnessSnapshot, BackupManifest, BackupSkillFileSnapshot, HarnessDefinition, RuntimeContext, State } from './types';
+import { ensureDir, inspectEntry, pathOwnsEntry, readJsonFile, removePath, timestampId, writeJsonFile } from './utils';
 
 export function createBackup(runtime: RuntimeContext, harnesses: HarnessDefinition[], state: State): BackupManifest {
   const id = timestampId();
   const backupDir = join(runtime.stateDir, 'backups', id);
-  const materializedRoot = join(backupDir, 'materialized');
-  ensureDir(materializedRoot);
+  ensureDir(backupDir);
 
   const harnessSnapshots = harnesses.map((harness) => snapshotHarness(backupDir, harness));
   const manifest: BackupManifest = {
@@ -24,29 +23,30 @@ export function createBackup(runtime: RuntimeContext, harnesses: HarnessDefiniti
   return manifest;
 }
 
-function snapshotHarness(backupDir: string, harness: HarnessDefinition): BackupHarnessSnapshot {
+function snapshotHarness(_backupDir: string, harness: HarnessDefinition): BackupHarnessSnapshot {
   const exists = existsSync(harness.rootPath);
   const entries: BackupEntrySnapshot[] = [];
   if (exists) {
     for (const name of readdirSync(harness.rootPath).sort()) {
       const entryPath = join(harness.rootPath, name);
       const stats = lstatSync(entryPath);
-      const materializedPath = join('materialized', harness.id, name);
-      const materializedAbsolute = join(backupDir, materializedPath);
       const snapshot: BackupEntrySnapshot = {
         name,
         path: entryPath,
         type: stats.isSymbolicLink() ? 'symlink' : stats.isDirectory() ? 'directory' : 'file',
+        skillFiles: [],
       };
       if (stats.isSymbolicLink()) {
         snapshot.linkTarget = readlinkSync(entryPath);
-        snapshot.targetExists = inspectEntry(entryPath).resolvedTarget !== undefined;
-      }
-      try {
-        copyMaterialized(entryPath, materializedAbsolute);
-        snapshot.materializedPath = materializedPath;
-      } catch {
-        snapshot.materializedPath = undefined;
+        const inspection = inspectEntry(entryPath);
+        snapshot.targetExists = inspection.resolvedTarget !== undefined;
+        if (inspection.resolvedTarget) {
+          snapshot.targetType = lstatSync(inspection.resolvedTarget).isDirectory() ? 'directory' : 'file';
+          snapshot.skillFiles = collectSkillFiles(inspection.resolvedTarget, snapshot.targetType);
+        }
+      } else {
+        snapshot.targetType = stats.isDirectory() ? 'directory' : 'file';
+        snapshot.skillFiles = collectSkillFiles(entryPath, snapshot.type);
       }
       entries.push(snapshot);
     }
@@ -135,7 +135,7 @@ export function restoreBackup(
 }
 
 function restoreEntry(
-  backupDir: string,
+  _backupDir: string,
   harness: BackupHarnessSnapshot,
   entry: BackupEntrySnapshot,
   dryRun: boolean,
@@ -146,7 +146,6 @@ function restoreEntry(
   }
 
   removePath(destinationPath);
-  const materializedAbsolute = entry.materializedPath ? join(backupDir, entry.materializedPath) : undefined;
   const linkTargetExists = entry.linkTarget
     ? existsSync(resolve(dirname(destinationPath), entry.linkTarget))
     : false;
@@ -155,14 +154,103 @@ function restoreEntry(
     symlinkSync(entry.linkTarget, destinationPath);
     return;
   }
-  if (materializedAbsolute && existsSync(materializedAbsolute)) {
-    cpSync(materializedAbsolute, destinationPath, {
-      recursive: true,
-      force: true,
-      errorOnExist: false,
-      preserveTimestamps: false,
-    });
+  if (entry.skillFiles.length > 0) {
+    restoreSkillFiles(destinationPath, entry);
     return;
   }
-  throw new Error(`Cannot restore ${relative(harness.rootPath, destinationPath)}: no valid link target or materialized copy`);
+  throw new Error(`Cannot restore ${relative(harness.rootPath, destinationPath)}: no valid link target or backed-up SKILL.md files`);
 }
+
+function restoreSkillFiles(destinationPath: string, entry: BackupEntrySnapshot): void {
+  const treatAsDirectory = entry.type === 'directory' || entry.type === 'symlink' || entry.targetType === 'directory' || entry.skillFiles.some((file) => file.relativePath.includes('/'));
+  if (treatAsDirectory) {
+    mkdirSync(destinationPath, { recursive: true });
+    for (const skillFile of entry.skillFiles) {
+      const targetPath = join(destinationPath, skillFile.relativePath);
+      mkdirSync(dirname(targetPath), { recursive: true });
+      writeFileSync(targetPath, skillFile.content, 'utf8');
+    }
+    return;
+  }
+  const skillFile = entry.skillFiles[0]!;
+  mkdirSync(dirname(destinationPath), { recursive: true });
+  writeFileSync(destinationPath, skillFile.content, 'utf8');
+}
+
+function collectSkillFiles(entryPath: string, entryType: 'symlink' | 'directory' | 'file'): BackupSkillFileSnapshot[] {
+  if (!existsSync(entryPath)) {
+    return [];
+  }
+  if (entryType === 'file') {
+    if (!entryPath.endsWith('SKILL.md')) {
+      return [];
+    }
+    return [{ relativePath: 'SKILL.md', content: readFileSync(entryPath, 'utf8') }];
+  }
+  return walkForSkillFiles(entryPath, '', new Set<string>());
+}
+
+function walkForSkillFiles(absoluteCurrent: string, currentRelative: string, visited: Set<string>): BackupSkillFileSnapshot[] {
+  const stats = lstatSync(absoluteCurrent);
+  const canonicalPath = getCanonicalPath(absoluteCurrent);
+  if (canonicalPath && visited.has(canonicalPath)) {
+    return [];
+  }
+  if (stats.isSymbolicLink()) {
+    const inspection = inspectEntry(absoluteCurrent);
+    if (!inspection.resolvedTarget) {
+      return [];
+    }
+    if (canonicalPath) {
+      visited.add(canonicalPath);
+    }
+    const resolvedStats = lstatSync(inspection.resolvedTarget);
+    if (resolvedStats.isDirectory()) {
+      return walkForSkillFiles(inspection.resolvedTarget, currentRelative, visited);
+    }
+    if (absoluteCurrent.endsWith('SKILL.md')) {
+      return [{ relativePath: currentRelative || 'SKILL.md', content: readFileSync(absoluteCurrent, 'utf8') }];
+    }
+    return [];
+  }
+  if (stats.isFile()) {
+    if (absoluteCurrent.endsWith('SKILL.md')) {
+      return [{ relativePath: currentRelative || 'SKILL.md', content: readFileSync(absoluteCurrent, 'utf8') }];
+    }
+    return [];
+  }
+  if (!stats.isDirectory()) {
+    return [];
+  }
+  if (canonicalPath) {
+    visited.add(canonicalPath);
+  }
+  const snapshots: BackupSkillFileSnapshot[] = [];
+  for (const name of readdirSync(absoluteCurrent).sort()) {
+    if (IGNORED_BACKUP_DIR_NAMES.has(name)) {
+      continue;
+    }
+    const nextRelative = currentRelative ? join(currentRelative, name) : name;
+    snapshots.push(...walkForSkillFiles(join(absoluteCurrent, name), nextRelative, visited));
+  }
+  return snapshots;
+}
+
+function getCanonicalPath(path: string): string | undefined {
+  try {
+    return realpathSync(path);
+  } catch {
+    return undefined;
+  }
+}
+
+const IGNORED_BACKUP_DIR_NAMES = new Set([
+  '.git',
+  'node_modules',
+  'dist',
+  'build',
+  '.next',
+  'coverage',
+  'tmp',
+  'temp',
+]);

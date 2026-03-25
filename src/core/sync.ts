@@ -1,13 +1,14 @@
 import { ensureDir, inspectEntry, nowIso, pathOwnsEntry, removePath } from './utils';
-import type { Config, DiscoveredSkill, HarnessDefinition, PlannedEntry, State, SyncPlan } from './types';
+import type { Config, DiscoveredSkill, HarnessDefinition, PlannedEntry, SourceDiagnostics, State, SyncPlan } from './types';
 import { join, resolve } from 'node:path';
-import { symlinkSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, symlinkSync } from 'node:fs';
 
 export function buildSyncPlan(
   skills: DiscoveredSkill[],
   harnesses: HarnessDefinition[],
   config: Config,
   state: State,
+  sourceDiagnostics?: SourceDiagnostics,
 ): SyncPlan {
   const harnessPlans = harnesses.map((harness) => ({
     harness,
@@ -82,6 +83,7 @@ export function buildSyncPlan(
     changes,
     conflicts,
     ok,
+    sourceDiagnostics: sourceDiagnostics || { warnings: [], errors: [] },
   };
 }
 
@@ -96,6 +98,7 @@ function buildPlannedEntry(
   const inspection = inspectEntry(destinationPath);
   const stateEntry = state.managedEntries[destinationPath];
   const sameSource = inspection.type === 'symlink' && inspection.resolvedTarget === resolve(skill.sourcePath);
+  const compatibility = inspectCompatibility(destinationPath, skill);
 
   if (!inspection.exists) {
     return makePlannedEntry(skill, harness, installName, destinationPath, 'create', 'missing entry will be created');
@@ -103,8 +106,14 @@ function buildPlannedEntry(
   if (sameSource) {
     return makePlannedEntry(skill, harness, installName, destinationPath, 'ok', 'already synced');
   }
+  if (compatibility === 'matching-skill') {
+    return makePlannedEntry(skill, harness, installName, destinationPath, 'ok', 'compatible existing install');
+  }
   if (stateEntry) {
     return makePlannedEntry(skill, harness, installName, destinationPath, 'repair', 'managed entry drift will be repaired');
+  }
+  if (compatibility === 'empty-directory') {
+    return makePlannedEntry(skill, harness, installName, destinationPath, 'repair', 'empty directory will be replaced');
   }
   return makePlannedEntry(
     skill,
@@ -116,6 +125,38 @@ function buildPlannedEntry(
       ? `existing symlink points elsewhere: ${inspection.linkTarget || 'unknown target'}`
       : `existing ${inspection.type} is unmanaged`,
   );
+}
+
+function inspectCompatibility(destinationPath: string, skill: DiscoveredSkill): 'matching-skill' | 'empty-directory' | 'none' {
+  const inspection = inspectEntry(destinationPath);
+  if (!inspection.exists) {
+    return 'none';
+  }
+  const sourceSkillText = readFileSync(skill.skillFilePath, 'utf8');
+
+  if (inspection.type === 'directory') {
+    if (readdirSync(destinationPath).length === 0) {
+      return 'empty-directory';
+    }
+    const installedSkillPath = join(destinationPath, 'SKILL.md');
+    if (existsSync(installedSkillPath) && readFileSync(installedSkillPath, 'utf8') === sourceSkillText) {
+      return 'matching-skill';
+    }
+    return 'none';
+  }
+
+  if (inspection.type === 'file') {
+    return readFileSync(destinationPath, 'utf8') === sourceSkillText ? 'matching-skill' : 'none';
+  }
+
+  if (inspection.type === 'symlink' && inspection.resolvedTarget) {
+    const installedSkillPath = join(inspection.resolvedTarget, 'SKILL.md');
+    if (existsSync(installedSkillPath) && readFileSync(installedSkillPath, 'utf8') === sourceSkillText) {
+      return 'matching-skill';
+    }
+  }
+
+  return 'none';
 }
 
 function makePlannedEntry(
@@ -197,7 +238,7 @@ export function countPlanActions(plan: SyncPlan): Record<string, number> {
 }
 
 export function hasConflicts(plan: SyncPlan): boolean {
-  return plan.conflicts > 0;
+  return plan.conflicts > 0 || plan.sourceDiagnostics.errors.length > 0;
 }
 
 export function hasDrift(plan: SyncPlan): boolean {

@@ -7,6 +7,10 @@ export function getDefaultConfig(homeDir: string): Config {
   return {
     version: 1,
     projectsRoots: [join(homeDir, '_dev')],
+    discovery: {
+      ignorePathPrefixes: [],
+      preferPathPrefixes: [],
+    },
     harnesses: {
       custom: [],
     },
@@ -30,6 +34,10 @@ export function loadConfig(runtime: RuntimeContext): Config {
     ...getDefaultConfig(runtime.homeDir),
     ...config,
     projectsRoots: (config.projectsRoots || []).map((root) => expandHomePath(root, runtime.homeDir)),
+    discovery: {
+      ignorePathPrefixes: (config.discovery?.ignorePathPrefixes || []).map((path) => expandHomePath(path, runtime.homeDir)),
+      preferPathPrefixes: (config.discovery?.preferPathPrefixes || []).map((path) => expandHomePath(path, runtime.homeDir)),
+    },
     harnesses: {
       custom: config.harnesses?.custom || [],
     },

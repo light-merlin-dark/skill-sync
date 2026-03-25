@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { homedir } from 'node:os';
@@ -81,6 +82,10 @@ export function parseSkillFrontmatterName(skillFilePath: string): string | undef
   }
   const match = parts[0].match(/^name:\s*(.+)\s*$/m);
   return match?.[1]?.trim();
+}
+
+export function hashContent(content: string): string {
+  return createHash('sha1').update(content).digest('hex');
 }
 
 export function listImmediateDirectories(path: string): string[] {

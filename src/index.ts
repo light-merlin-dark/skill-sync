@@ -4,13 +4,13 @@ import { mkdirSync } from 'node:fs';
 import { createBackup, listBackups, restoreBackup } from './core/backup';
 import { addHarness, addProjectsRoot, initConfig, loadConfig, loadState, removeHarness, removeProjectsRoot, saveState } from './core/config';
 import { resolveHarnesses, filterHarnesses } from './core/harnesses';
-import { discoverSkills, describeSkill } from './core/sources';
+import { discoverSkillSet, describeSkill } from './core/sources';
 import { applySyncPlan, buildSyncPlan, countPlanActions, hasConflicts, hasDrift } from './core/sync';
 import { buildRuntimeContext } from './core/utils';
-import type { HarnessDefinition, JsonValue, SyncPlan } from './core/types';
+import type { HarnessDefinition, JsonValue, SourceDiagnostic, SyncPlan } from './core/types';
 
 const cli = cac('skill-sync');
-const version = '0.1.0';
+const version = '0.1.1';
 
 type GlobalOptions = {
   json?: boolean;
@@ -56,7 +56,11 @@ function print(value: JsonValue | string, json: boolean): void {
 
 function renderPlan(plan: SyncPlan): string {
   const lines: string[] = [];
+  appendSourceDiagnostics(lines, plan.sourceDiagnostics);
   const counts = countPlanActions(plan);
+  if (lines.length > 0) {
+    lines.push('');
+  }
   lines.push(`Summary: ${plan.ok} ok, ${plan.changes} change(s), ${plan.conflicts} conflict(s)`);
   lines.push(`Actions: ${Object.entries(counts).map(([action, count]) => `${action}=${count}`).join(', ')}`);
   for (const harnessPlan of plan.harnesses) {
@@ -75,14 +79,47 @@ function renderPlan(plan: SyncPlan): string {
   return lines.join('\n');
 }
 
+function appendSourceDiagnostics(lines: string[], sourceDiagnostics: SyncPlan['sourceDiagnostics']): void {
+  if (sourceDiagnostics.errors.length === 0 && sourceDiagnostics.warnings.length === 0) {
+    return;
+  }
+  if (sourceDiagnostics.errors.length > 0) {
+    lines.push('Source errors:');
+    for (const diagnostic of sourceDiagnostics.errors) {
+      appendSourceDiagnostic(lines, diagnostic);
+    }
+  }
+  if (sourceDiagnostics.warnings.length > 0) {
+    if (lines.length > 0) {
+      lines.push('');
+    }
+    lines.push('Source warnings:');
+    for (const diagnostic of sourceDiagnostics.warnings) {
+      appendSourceDiagnostic(lines, diagnostic);
+    }
+  }
+}
+
+function appendSourceDiagnostic(lines: string[], diagnostic: SourceDiagnostic): void {
+  lines.push(`- duplicate slug: ${diagnostic.slug}`);
+  for (const sourcePath of diagnostic.sourcePaths) {
+    lines.push(`  ${sourcePath}`);
+  }
+  if (diagnostic.resolution === 'resolved-by-preference' && diagnostic.chosenSourcePath) {
+    lines.push(`  resolved by preference: ${diagnostic.chosenSourcePath}`);
+    return;
+  }
+  lines.push('  sync blocked until one source is excluded or preferred');
+}
+
 function planSync(options: GlobalOptions): { runtime: ReturnType<typeof buildRuntimeContext>; plan: SyncPlan; harnesses: HarnessDefinition[]; skillsCount: number } {
   return withRuntime(options, (runtime) => {
     const config = loadConfig(runtime);
     config.projectsRoots = resolveProjectsOverride(config.projectsRoots, options);
     const harnesses = resolveSelectedHarnesses(resolveHarnesses(runtime.homeDir, config), options);
-    const skills = discoverSkills(config);
+    const { skills, sourceDiagnostics } = discoverSkillSet(config);
     const state = loadState(runtime);
-    const plan = buildSyncPlan(skills, harnesses, config, state);
+    const plan = buildSyncPlan(skills, harnesses, config, state, sourceDiagnostics);
     return { runtime, plan, harnesses, skillsCount: skills.length };
   });
 }
@@ -134,12 +171,18 @@ cli
     withRuntime(options, (runtime) => {
       const config = loadConfig(runtime);
       config.projectsRoots = resolveProjectsOverride(config.projectsRoots, options);
-      const skills = discoverSkills(config);
+      const { skills, sourceDiagnostics } = discoverSkillSet(config);
       if (options.json) {
-        print(skills as unknown as JsonValue, true);
+        print({ skills, sourceDiagnostics } as unknown as JsonValue, true);
         return;
       }
       console.log(`Discovered ${skills.length} skill source(s)`);
+      const sourceLines: string[] = [];
+      appendSourceDiagnostics(sourceLines, sourceDiagnostics);
+      if (sourceLines.length > 0) {
+        console.log(sourceLines.join('\n'));
+        console.log('');
+      }
       for (const skill of skills) {
         console.log(`- ${describeSkill(skill)}`);
       }

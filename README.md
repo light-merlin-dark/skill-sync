@@ -9,7 +9,7 @@
 Sync local repo-backed agent skills across Codex, Claude Code, Cursor, Gemini, Hermes, and more.
 ```
 
-`skill-sync` keeps local `SKILL.md` sources installed into agent harnesses as symlinks, with drift checks, conflict detection, and restoreable backups.
+`skill-sync` keeps local `SKILL.md` sources installed into agent harnesses as symlinks, with drift checks, source-topology diagnostics, conflict detection, and restoreable backups.
 
 ## Why This Exists
 
@@ -31,6 +31,7 @@ Sync local repo-backed agent skills across Codex, Claude Code, Cursor, Gemini, H
 - Detects installed harness skill roots
 - Plans drift without changing anything
 - Syncs symlinked installs into harnesses
+- Warns when the same skill slug appears multiple times in your configured project roots
 - Refuses to overwrite unmanaged conflicts silently
 - Creates harness `skills` backups and restores them later
 
@@ -158,9 +159,10 @@ skill-sync harness add codex-beta ~/.codex-beta/skills
 - `check` never mutates
 - `sync` only replaces entries the tool owns or missing entries
 - unmanaged conflicts are reported, not overwritten
+- duplicate `_dev` slugs are surfaced before harness-level sync planning
 - backups snapshot harness `skills` directories before or after risky changes
 - restore can recreate symlinks when the original source still exists
-- restore falls back to materialized backed-up content when the source no longer exists
+- restore falls back to minimal backed-up `SKILL.md` content when the source no longer exists
 
 ## Backup and Restore
 
@@ -198,7 +200,7 @@ Each backup includes:
 
 - a manifest of harness roots and entries
 - original symlink targets when present
-- materialized backup content for restore fallback
+- backed-up `SKILL.md` snapshots for restore fallback
 - a state snapshot for managed entries
 
 ## JSON Output
@@ -214,6 +216,7 @@ skill-sync check --json
 Returns structured data for:
 
 - discovered sources
+- source warnings and source errors
 - selected harness roots
 - planned actions
 - conflicts
@@ -232,6 +235,21 @@ Canonical install names default to:
 - otherwise a folder-derived fallback
 
 You can override install names per source and per harness in `~/.skill-sync/config.json`.
+
+You can also exclude or prefer project paths during discovery:
+
+```json
+{
+  "discovery": {
+    "ignorePathPrefixes": [
+      "/Users/you/_dev/some-upstream-clone"
+    ],
+    "preferPathPrefixes": [
+      "/Users/you/_dev/packages/stack"
+    ]
+  }
+}
+```
 
 ## Local Development
 

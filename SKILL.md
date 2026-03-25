@@ -73,6 +73,9 @@ skill-sync harnesses --json
 ## Safety Rules
 
 - Prefer `check` before `sync`.
-- Do not overwrite unmanaged conflicts by hand; inspect why they exist first.
+- If `check` reports a `conflict` due to an existing *unmanaged* install (common case: a skill folder already exists in a harness root like `~/.hermes/skills/<skill>`), resolve by either:
+  - removing the unmanaged directory/file and re-running `sync`, or
+  - restoring via `skill-sync backup restore <backup-id>`.
+  Do not leave mixed symlink + real directories behind.
 - Use `--home` for isolated testing against a fake home directory.
 - Use `--projects-root` when you need to constrain discovery to a specific source tree.

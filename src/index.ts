@@ -57,6 +57,16 @@ function print(value: JsonValue | string, json: boolean): void {
 function renderPlan(plan: SyncPlan): string {
   const lines: string[] = [];
   appendSourceDiagnostics(lines, plan.sourceDiagnostics);
+  if (plan.orphanSkills && plan.orphanSkills.length > 0) {
+    if (lines.length > 0) {
+      lines.push('');
+    }
+    lines.push('Orphan installed skills:');
+    for (const orphan of plan.orphanSkills) {
+      const resolved = orphan.inspection.type === 'symlink' ? orphan.inspection.resolvedTarget || orphan.inspection.linkTarget : undefined;
+      lines.push(`- ${orphan.harnessId}/${orphan.installName}  ${orphan.destinationPath}${resolved ? ` -> ${resolved}` : ''}`);
+    }
+  }
   const counts = countPlanActions(plan);
   if (lines.length > 0) {
     lines.push('');

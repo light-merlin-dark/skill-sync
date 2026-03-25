@@ -1,5 +1,5 @@
 import { ensureDir, inspectEntry, nowIso, pathOwnsEntry, removePath } from './utils';
-import type { Config, DiscoveredSkill, HarnessDefinition, PlannedEntry, SourceDiagnostics, State, SyncPlan } from './types';
+import type { Config, DiscoveredSkill, HarnessDefinition, OrphanSkill, PlannedEntry, SourceDiagnostics, State, SyncPlan } from './types';
 import { join, resolve } from 'node:path';
 import { existsSync, readdirSync, readFileSync, symlinkSync } from 'node:fs';
 
@@ -78,12 +78,62 @@ export function buildSyncPlan(
     harnessPlan.entries.sort((a, b) => a.destinationPath.localeCompare(b.destinationPath));
   }
 
+  // Orphan reporting: skills that exist inside harness roots (have a SKILL.md)
+  // but are neither part of the desired/discovered set nor tracked in state.managedEntries.
+  const orphanSkills: OrphanSkill[] = [];
+  for (const harnessPlan of harnessPlans) {
+    const desiredSet = desiredByHarness.get(harnessPlan.harness.id) || new Set<string>();
+    let children: string[] = [];
+    try {
+      children = readdirSync(harnessPlan.harness.rootPath);
+    } catch {
+      continue;
+    }
+
+    for (const child of children) {
+      const destinationPath = join(harnessPlan.harness.rootPath, child);
+
+      // If the skill is desired (or already managed), don't call it an orphan.
+      if (desiredSet.has(destinationPath)) {
+        continue;
+      }
+      if (state.managedEntries[destinationPath]) {
+        continue;
+      }
+
+      const inspection = inspectEntry(destinationPath);
+      if (!inspection.exists) {
+        continue;
+      }
+
+      let hasSkillMd = false;
+      if (inspection.type === 'directory') {
+        hasSkillMd = existsSync(join(destinationPath, 'SKILL.md'));
+      } else if (inspection.type === 'symlink' && inspection.resolvedTarget) {
+        hasSkillMd = existsSync(join(inspection.resolvedTarget, 'SKILL.md'));
+      }
+
+      if (!hasSkillMd) {
+        continue;
+      }
+
+      orphanSkills.push({
+        harnessId: harnessPlan.harness.id,
+        harnessRoot: harnessPlan.harness.rootPath,
+        installName: child,
+        destinationPath,
+        inspection,
+      });
+    }
+  }
+
   return {
     harnesses: harnessPlans,
     changes,
     conflicts,
     ok,
     sourceDiagnostics: sourceDiagnostics || { warnings: [], errors: [] },
+    orphanSkills: orphanSkills.length ? orphanSkills : undefined,
   };
 }
 

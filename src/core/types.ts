@@ -102,12 +102,24 @@ export type PlannedHarness = {
   entries: PlannedEntry[];
 };
 
+export type OrphanSkill = {
+  harnessId: string;
+  harnessRoot: string;
+  installName: string;
+  destinationPath: string;
+  inspection: EntryInspection;
+  // Why it's considered an orphan for the purposes of skill-sync:
+  // - exists in harness root, has SKILL.md, but is NOT part of the discovered/desired source set
+  // - and is NOT in skill-sync managedEntries state.
+};
+
 export type SyncPlan = {
   harnesses: PlannedHarness[];
   changes: number;
   conflicts: number;
   ok: number;
   sourceDiagnostics: SourceDiagnostics;
+  orphanSkills?: OrphanSkill[];
 };
 
 export type BackupManifest = {

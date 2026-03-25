@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.1.3
+- Makefile release: robust GitHub release notes generation via `--notes-file` and correct escaping of `awk $0`.
+
 ## 0.1.2
 - Report installed “orphan” skills during `skill-sync check` (helps explain why a harness skill UI didn’t update)
 - Add `make release` target (pre-publish → npm publish → git tag + push → GitHub release create/update)

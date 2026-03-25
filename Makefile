@@ -74,15 +74,17 @@ release: pre-publish
 			git tag -a "$$tag" -m "$$tag"; \
 			git push origin "$$tag"; \
 		fi; \
-		# Extract changelog section for this version (best-effort)
-		notes=$$(awk -v v="$$VERSION" 'BEGIN{found=0} /^##[[:space:]]*\$$v[[:space:]]*$$/{found=1;next} /^##[[:space:]]*/{if(found){exit}} {if(found){print}}' CHANGELOG.md); \
-		if [ -z "$$notes" ]; then \
-			notes="Release $$tag"; \
+		# Extract changelog section for this version (robust notes-file approach)
+		notes_file=$$(mktemp); \
+		awk -v v="$$VERSION" 'BEGIN{p=0} $$0 ~ "^##[[:space:]]*"v"[[:space:]]*$" {p=1;next} p && /^##[[:space:]]*/{exit} p{print}' CHANGELOG.md > "$$notes_file"; \
+		if [ ! -s "$$notes_file" ]; then \
+			echo "Release $$tag" > "$$notes_file"; \
 		fi; \
 		if gh release view "$$tag" >/dev/null 2>&1; then \
 			echo "Updating GitHub release $$tag"; \
-			gh release edit "$$tag" --notes "$$notes" --title "$$tag"; \
+			gh release edit "$$tag" --notes-file "$$notes_file" --title "$$tag"; \
 		else \
 			echo "Creating GitHub release $$tag"; \
-			gh release create "$$tag" --notes "$$notes" --title "$$tag" --target main; \
-		fi
+			gh release create "$$tag" --notes-file "$$notes_file" --title "$$tag" --target main; \
+		fi; \
+		rm -f "$$notes_file"

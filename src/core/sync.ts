@@ -312,7 +312,7 @@ export function hasConflicts(plan: SyncPlan): boolean {
 }
 
 export function hasDrift(plan: SyncPlan): boolean {
-  return plan.changes > 0;
+  return plan.changes > 0 || plan.sourceDiagnostics.warnings.some((diagnostic) => diagnostic.kind === 'invalid-frontmatter');
 }
 
 export function pruneStateForRoots(state: State, roots: string[]): State {

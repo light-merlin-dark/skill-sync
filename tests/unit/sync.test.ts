@@ -32,6 +32,7 @@ test('uses alias overrides and reports collisions', () => {
     projectsRoot: '/tmp',
     sourceType: 'repo-root',
     metadataName: 'Alpha',
+    frontmatterIssues: [],
     canonicalSlug: 'alpha',
   };
   const skillB: DiscoveredSkill = {
@@ -42,6 +43,7 @@ test('uses alias overrides and reports collisions', () => {
     projectsRoot: '/tmp',
     sourceType: 'repo-root',
     metadataName: 'Beta',
+    frontmatterIssues: [],
     canonicalSlug: 'beta',
   };
   const config: Config = {
@@ -89,6 +91,7 @@ test('repairs an unmanaged directory with matching SKILL.md into a symlinked ins
     projectsRoot: homeDir,
     sourceType: 'repo-root',
     metadataName: 'prod',
+    frontmatterIssues: [],
     canonicalSlug: 'prod',
     contentHash: 'hash',
   };

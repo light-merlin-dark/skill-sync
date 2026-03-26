@@ -79,15 +79,27 @@ export function parseSkillFrontmatterName(skillFilePath: string): string | undef
 export function parseSkillFrontmatterContent(content: string): SkillFrontmatter {
   const frontmatterLines = extractFrontmatterLines(content);
   if (!frontmatterLines) {
-    return {};
+    return {
+      hasFrontmatter: false,
+      issues: ['missing YAML frontmatter block (`---` header)'],
+    };
   }
 
-  const frontmatter: SkillFrontmatter = {};
+  const frontmatter: SkillFrontmatter = {
+    hasFrontmatter: true,
+    issues: [],
+  };
   for (let index = 0; index < frontmatterLines.length; index += 1) {
     const line = frontmatterLines[index]!;
     const nameMatch = line.match(/^name:\s*(.+)\s*$/);
     if (nameMatch) {
       frontmatter.name = stripYamlQuotes(nameMatch[1]!.trim());
+      continue;
+    }
+
+    const descriptionMatch = line.match(/^description:\s*(.+)\s*$/);
+    if (descriptionMatch) {
+      frontmatter.description = stripYamlQuotes(descriptionMatch[1]!.trim());
       continue;
     }
 
@@ -126,6 +138,10 @@ export function parseSkillFrontmatterContent(content: string): SkillFrontmatter 
     if (values.length > 0) {
       frontmatter.skillSyncInstallOn = values;
     }
+  }
+
+  if (!frontmatter.name) {
+    frontmatter.issues.push('missing required `name:` in frontmatter');
   }
 
   return frontmatter;

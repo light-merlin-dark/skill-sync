@@ -173,3 +173,19 @@ test('preserves the owning harness and local-only scope for mirrored harness-nat
   expect(dogfood?.installHarnessIds).toEqual(['hermes']);
   expect(describeSkill(dogfood!)).toContain('[local-only: hermes]');
 });
+
+test('reports malformed or missing frontmatter as source warnings', () => {
+  const { homeDir, projectsRoot } = makeFakeProjectsRoot();
+  tempPaths.push(homeDir);
+
+  const brokenRepo = makeTopLevelSkill(projectsRoot, 'db-cli');
+  writeText(
+    `${brokenRepo}/SKILL.md`,
+    'name: db\ndescription: Broken frontmatter example\n---\n\n# DB\n',
+  );
+
+  const { skills, sourceDiagnostics } = discoverSkillSet(makeConfig(projectsRoot));
+  const brokenSkill = skills.find((skill) => skill.sourcePath.endsWith('/db-cli'));
+  expect(brokenSkill?.frontmatterIssues).toContain('missing YAML frontmatter block (`---` header)');
+  expect(sourceDiagnostics.warnings.some((warning) => warning.kind === 'invalid-frontmatter' && warning.sourcePaths.some((path) => path.endsWith('/db-cli')))).toBe(true);
+});

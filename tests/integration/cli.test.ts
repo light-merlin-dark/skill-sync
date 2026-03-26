@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from 'bun:test';
-import { existsSync, lstatSync, mkdirSync, readlinkSync, readdirSync, rmSync, symlinkSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, readdirSync, rmSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { cleanup, makeFakeProjectsRoot, makeHarnessRoot, makeNestedSkill, makeTopLevelSkill, readSkillFile, writeText } from '../support';
 
@@ -221,4 +221,32 @@ test('execute keeps harness-local skills on their owning harness only', () => {
   expect(sourcesResult.exitCode).toBe(0);
   expect(sourcesResult.stdout.toString()).toContain('dogfood <= hermes:');
   expect(sourcesResult.stdout.toString()).toContain('[local-only: hermes]');
+});
+
+test('doctor flags malformed skill metadata even when sync layout is otherwise fine', () => {
+  const repoRoot = '/Users/merlin/_dev/skill-sync';
+  const { homeDir, projectsRoot } = makeFakeProjectsRoot();
+  tempPaths.push(homeDir);
+
+  makeHarnessRoot(homeDir, '.codex/skills');
+  const brokenSkillPath = makeTopLevelSkill(projectsRoot, 'db-cli');
+  writeText(
+    join(brokenSkillPath, 'SKILL.md'),
+    'name: db\ndescription: Broken frontmatter example\n---\n\n# DB\n',
+  );
+
+  const result = runCli(repoRoot, ['doctor', '--home', homeDir, '--projects-root', projectsRoot], {});
+  expect(result.exitCode).toBe(2);
+  expect(result.stdout.toString()).toContain('Source warnings:');
+  expect(result.stdout.toString()).toContain('invalid skill metadata: db');
+  expect(result.stdout.toString()).toContain('frontmatter');
+});
+
+test('version command matches package.json', () => {
+  const repoRoot = '/Users/merlin/_dev/skill-sync';
+  const packageVersion = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')).version;
+
+  const result = runCli(repoRoot, ['--version'], {});
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout.toString()).toContain(`skill-sync/${packageVersion}`);
 });

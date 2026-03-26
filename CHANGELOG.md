@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.1.6
+- Make `doctor` flag malformed or missing skill frontmatter so Codex-indexing failures are surfaced before sync looks healthy
+- Read the CLI version from `package.json` so `skill-sync --version` stays aligned with the shipped package
+
 ## 0.1.5
 - Make `make -n release` a true dry run by avoiding recursive `make` inside the release recipe
 

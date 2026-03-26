@@ -33,6 +33,7 @@ Sync local repo-backed agent skills across Codex, Claude Code, Cursor, Gemini, H
 - Plans drift without changing anything
 - Syncs symlinked installs into harnesses
 - Warns when the same skill slug appears multiple times in your configured project roots
+- Flags malformed or missing skill frontmatter before Codex or another harness silently skips indexing a skill
 - Refuses to overwrite unmanaged conflicts silently
 - Creates harness `skills` backups and restores them later
 
@@ -168,6 +169,7 @@ skill-sync harness add codex-beta ~/.codex-beta/skills
 - `execute` / `sync` only replace entries the tool owns or missing entries
 - unmanaged conflicts are reported, not overwritten
 - duplicate `_dev` slugs are surfaced before harness-level sync planning
+- malformed skill metadata is surfaced during `doctor`, including missing YAML frontmatter or missing `name:`
 - harness-installed skills can be promoted as fallback sources when no project-root source exists for the same slug
 - harness-native skills can stay local-only via frontmatter instead of being fanned out everywhere
 - backups snapshot harness `skills` directories before or after risky changes

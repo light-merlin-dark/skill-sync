@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { cac } from 'cac';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { createBackup, listBackups, restoreBackup } from './core/backup';
 import { addHarness, addProjectsRoot, initConfig, loadConfig, loadState, removeHarness, removeProjectsRoot, saveState } from './core/config';
 import { resolveHarnesses, filterHarnesses } from './core/harnesses';
@@ -10,7 +10,16 @@ import { buildRuntimeContext } from './core/utils';
 import type { DiscoveredSkill, HarnessDefinition, JsonValue, SourceDiagnostic, SyncPlan } from './core/types';
 
 const cli = cac('skill-sync');
-const version = '0.1.3';
+const version = readCliVersion();
+
+function readCliVersion(): string {
+  try {
+    const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version?: string };
+    return packageJson.version || '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
 
 type GlobalOptions = {
   json?: boolean;
@@ -254,6 +263,18 @@ function appendSourceDiagnostics(lines: string[], sourceDiagnostics: SyncPlan['s
 }
 
 function appendSourceDiagnostic(lines: string[], diagnostic: SourceDiagnostic): void {
+  if (diagnostic.kind === 'invalid-frontmatter') {
+    lines.push(`- invalid skill metadata: ${diagnostic.slug}`);
+    for (const sourcePath of diagnostic.sourcePaths) {
+      lines.push(`  ${sourcePath}`);
+    }
+    if (diagnostic.message) {
+      lines.push(`  ${diagnostic.message}`);
+    }
+    lines.push('  Codex and other harnesses may fail to index this skill until the frontmatter is fixed');
+    return;
+  }
+
   lines.push(`- duplicate slug: ${diagnostic.slug}`);
   for (const sourcePath of diagnostic.sourcePaths) {
     lines.push(`  ${sourcePath}`);

@@ -25,9 +25,12 @@ export type AliasOverride = {
 };
 
 export type SkillFrontmatter = {
+  hasFrontmatter: boolean;
   name?: string;
+  description?: string;
   skillSyncScope?: 'global' | 'local-only';
   skillSyncInstallOn?: string[];
+  issues: string[];
 };
 
 export type State = {
@@ -61,17 +64,20 @@ export type DiscoveredSkill = {
   sourceType: 'repo-root' | 'nested' | 'harness-root';
   harnessId?: string;
   metadataName?: string;
+  frontmatterIssues: string[];
   installHarnessIds?: string[];
   canonicalSlug: string;
   contentHash: string;
 };
 
 export type SourceDiagnostic = {
+  kind: 'duplicate-slug' | 'invalid-frontmatter';
   slug: string;
   severity: 'warning' | 'error';
-  resolution: 'resolved-by-preference' | 'unresolved';
+  resolution: 'resolved-by-preference' | 'unresolved' | 'fix-skill-frontmatter';
   chosenSourcePath?: string;
   sourcePaths: string[];
+  message?: string;
 };
 
 export type SourceDiagnostics = {

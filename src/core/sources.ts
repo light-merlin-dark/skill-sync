@@ -82,6 +82,7 @@ function buildDiscoveredSkill(
     sourceType,
     harnessId,
     metadataName,
+    frontmatterIssues: frontmatter.issues,
     installHarnessIds: resolveInstallHarnessIds(sourceType, harnessId, frontmatter),
     canonicalSlug,
     contentHash,
@@ -123,6 +124,7 @@ function resolveGlobalDuplicates(
       resolved.push(preferredGroup[0]!);
       if (uniqueGroup.length > preferredGroup.length) {
         warnings.push({
+          kind: 'duplicate-slug',
           slug: uniqueGroup[0]!.canonicalSlug,
           severity: 'warning',
           resolution: 'resolved-by-preference',
@@ -136,6 +138,7 @@ function resolveGlobalDuplicates(
     if (distinctHashes.size !== 1) {
       resolved.push(...preferredGroup);
       errors.push({
+        kind: 'duplicate-slug',
         slug: preferredGroup[0]!.canonicalSlug,
         severity: 'error',
         resolution: 'unresolved',
@@ -146,12 +149,25 @@ function resolveGlobalDuplicates(
     const sorted = [...preferredGroup].sort((a, b) => compareDiscoveredSkills(a, b, preferPrefixes));
     resolved.push(sorted[0]!);
     warnings.push({
+      kind: 'duplicate-slug',
       slug: preferredGroup[0]!.canonicalSlug,
       severity: 'warning',
       resolution: 'resolved-by-preference',
       chosenSourcePath: sorted[0]!.sourcePath,
       sourcePaths: uniqueGroup.map((skill) => skill.sourcePath).sort(),
     });
+  }
+  for (const skill of resolved) {
+    for (const issue of skill.frontmatterIssues) {
+      warnings.push({
+        kind: 'invalid-frontmatter',
+        slug: skill.canonicalSlug,
+        severity: 'warning',
+        resolution: 'fix-skill-frontmatter',
+        sourcePaths: [skill.sourcePath],
+        message: issue,
+      });
+    }
   }
   return {
     skills: resolved,

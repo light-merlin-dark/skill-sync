@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+## 0.1.4
+- Make bare `skill-sync` / `ss` show a high-signal landing/help view instead of mutating
+- Add `doctor` as the high-signal diagnostic command and `execute` as the explicit mutating command; keep `check` and `sync` as compatibility aliases
+- Discover harness-installed skills as fallback sources, while keeping project-root sources authoritative for the same slug
+- Add frontmatter-based install scoping so harness-native skills can stay local-only or target specific harness ids instead of syncing everywhere
+- Tighten symlink-first behavior by repairing matching copied installs instead of treating them as fully healthy
+- Align CLI `--version` output with the package version
+- Harden `make release` so patch releases can auto-bump version/changelog, publish, commit, tag, push, and refresh the GitHub release in one path
+
 ## 0.1.3
 - Makefile release: robust GitHub release notes generation via `--notes-file` and correct escaping of `awk $0`.
 

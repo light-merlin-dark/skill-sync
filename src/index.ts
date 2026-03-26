@@ -7,13 +7,14 @@ import { resolveHarnesses, filterHarnesses } from './core/harnesses';
 import { discoverSkillSet, describeSkill } from './core/sources';
 import { applySyncPlan, buildSyncPlan, countPlanActions, hasConflicts, hasDrift } from './core/sync';
 import { buildRuntimeContext } from './core/utils';
-import type { HarnessDefinition, JsonValue, SourceDiagnostic, SyncPlan } from './core/types';
+import type { DiscoveredSkill, HarnessDefinition, JsonValue, SourceDiagnostic, SyncPlan } from './core/types';
 
 const cli = cac('skill-sync');
-const version = '0.1.1';
+const version = '0.1.3';
 
 type GlobalOptions = {
   json?: boolean;
+  verbose?: boolean;
   home?: string;
   dryRun?: boolean;
   projectsRoot?: string | string[];
@@ -54,10 +55,34 @@ function print(value: JsonValue | string, json: boolean): void {
   console.log(value);
 }
 
-function renderPlan(plan: SyncPlan): string {
+function renderLandingHelp(): string {
+  return [
+    'skill-sync',
+    '',
+    'High-signal commands:',
+    '  skill-sync doctor           Inspect sources, drift, and orphan installs',
+    '  skill-sync doctor --verbose Show the full per-entry plan',
+    '  skill-sync execute          Apply symlink updates',
+    '  skill-sync sync             Alias for execute',
+    '  skill-sync sources          List discovered source skills',
+    '  skill-sync harnesses        List detected harness roots',
+    '',
+    'Short alias:',
+    '  ss doctor',
+    '  ss execute',
+    '',
+    'Safety:',
+    '  skill-sync backup create',
+    '  skill-sync backup list',
+    '',
+    'Use --help for the full command reference.',
+  ].join('\n');
+}
+
+function renderDetailedPlan(plan: SyncPlan, options?: { includeOrphans?: boolean }): string {
   const lines: string[] = [];
   appendSourceDiagnostics(lines, plan.sourceDiagnostics);
-  if (plan.orphanSkills && plan.orphanSkills.length > 0) {
+  if (options?.includeOrphans !== false && plan.orphanSkills && plan.orphanSkills.length > 0) {
     if (lines.length > 0) {
       lines.push('');
     }
@@ -86,6 +111,124 @@ function renderPlan(plan: SyncPlan): string {
       }
     }
   }
+  return lines.join('\n');
+}
+
+function renderPlan(plan: SyncPlan, options: { verbose?: boolean; includeOrphans?: boolean }): string {
+  if (options.verbose || hasConflicts(plan)) {
+    return renderDetailedPlan(plan, options);
+  }
+
+  const lines: string[] = [];
+  appendSourceDiagnostics(lines, plan.sourceDiagnostics);
+  if (options.includeOrphans !== false && plan.orphanSkills && plan.orphanSkills.length > 0) {
+    if (lines.length > 0) {
+      lines.push('');
+    }
+    const harnessCount = new Set(plan.orphanSkills.map((orphan) => orphan.harnessId)).size;
+    lines.push(`Orphan installed skills: ${plan.orphanSkills.length} detected across ${harnessCount} harness(es)`);
+    lines.push('Run `skill-sync doctor --verbose` to inspect orphan entries.');
+  }
+
+  const counts = countPlanActions(plan);
+  if (lines.length > 0) {
+    lines.push('');
+  }
+  lines.push(`Summary: ${plan.ok} ok, ${plan.changes} change(s), ${plan.conflicts} conflict(s)`);
+  lines.push(`Actions: ${Object.entries(counts).map(([action, count]) => `${action}=${count}`).join(', ')}`);
+
+  const harnessLines = summarizeHarnessPlans(plan);
+  if (harnessLines.length > 0) {
+    lines.push('');
+    lines.push('Harness changes:');
+    lines.push(...harnessLines);
+  }
+
+  return lines.join('\n');
+}
+
+function summarizeHarnessPlans(plan: SyncPlan): string[] {
+  const lines: string[] = [];
+  for (const harnessPlan of plan.harnesses) {
+    const interestingEntries = harnessPlan.entries.filter((entry) => entry.action !== 'ok');
+    if (interestingEntries.length === 0) {
+      continue;
+    }
+    const counts: Record<string, number> = {};
+    for (const entry of interestingEntries) {
+      counts[entry.action] = (counts[entry.action] || 0) + 1;
+    }
+    lines.push(`- ${harnessPlan.harness.id}: ${Object.entries(counts).map(([action, count]) => `${action}=${count}`).join(', ')}`);
+  }
+  return lines;
+}
+
+function renderDoctorReport(plan: SyncPlan, state: ReturnType<typeof loadState>, skills: DiscoveredSkill[], harnessCount: number, verbose?: boolean): string {
+  if (verbose || hasConflicts(plan)) {
+    return renderDetailedPlan(plan, { includeOrphans: true });
+  }
+
+  const totalExpectedInstalls = plan.harnesses
+    .flatMap((harness) => harness.entries)
+    .filter((entry) => entry.action !== 'remove-managed' && entry.action !== 'prune-state')
+    .length;
+  const trackedExpectedInstalls = plan.harnesses
+    .flatMap((harness) => harness.entries)
+    .filter((entry) => entry.action !== 'conflict' && Boolean(state.managedEntries[entry.destinationPath]))
+    .length;
+  const okButUntracked = plan.harnesses
+    .flatMap((harness) => harness.entries)
+    .filter((entry) => entry.action === 'ok' && !state.managedEntries[entry.destinationPath])
+    .length;
+  const compatibleCopies = plan.harnesses
+    .flatMap((harness) => harness.entries)
+    .filter((entry) => entry.message === 'matching install will be replaced with a symlink to the authoritative source')
+    .length;
+  const lines: string[] = [];
+  appendSourceDiagnostics(lines, plan.sourceDiagnostics);
+  if (lines.length > 0) {
+    lines.push('');
+  }
+  lines.push('Doctor');
+  lines.push(`Sources: ${skills.length} discovered skill source(s)`);
+  const scopedSources = skills.filter((skill) => skill.installHarnessIds && skill.installHarnessIds.length > 0).length;
+  if (scopedSources > 0) {
+    lines.push(`Scope: ${skills.length - scopedSources} global, ${scopedSources} scoped`);
+  }
+  lines.push(`Harnesses: ${harnessCount} detected/enabled root(s)`);
+  lines.push(`Expected installs: ${totalExpectedInstalls}`);
+  lines.push(`State: ${trackedExpectedInstalls} tracked, ${okButUntracked} ok-but-untracked`);
+  lines.push(`Sync: ${plan.changes} change(s), ${plan.conflicts} conflict(s), ${plan.ok} ok`);
+
+  if (compatibleCopies > 0) {
+    lines.push(`Copies: ${compatibleCopies} matching install(s) still need conversion from copied content to authoritative symlinks`);
+  }
+
+  if (plan.orphanSkills && plan.orphanSkills.length > 0) {
+    const groupedOrphans = new Map<string, number>();
+    for (const orphan of plan.orphanSkills) {
+      groupedOrphans.set(orphan.harnessId, (groupedOrphans.get(orphan.harnessId) || 0) + 1);
+    }
+    const topHarnesses = [...groupedOrphans.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .slice(0, 5)
+      .map(([harnessId, count]) => `${harnessId}=${count}`)
+      .join(', ');
+    lines.push(`Orphans: ${plan.orphanSkills.length} installed skill(s) exist outside the discovered source set`);
+    lines.push(`Top orphan roots: ${topHarnesses}`);
+    lines.push('Diagnosis: project-root skills are syncing correctly. The remaining orphans are typically slug mismatches, backup artifacts, or installed entries that do not yet map to a canonical source.');
+    lines.push('Run `skill-sync doctor --verbose` to inspect orphan entries.');
+  } else {
+    lines.push('Orphans: 0');
+  }
+
+  const harnessLines = summarizeHarnessPlans(plan);
+  if (harnessLines.length > 0) {
+    lines.push('');
+    lines.push('Harness changes:');
+    lines.push(...harnessLines);
+  }
+
   return lines.join('\n');
 }
 
@@ -122,55 +265,124 @@ function appendSourceDiagnostic(lines: string[], diagnostic: SourceDiagnostic): 
   lines.push('  sync blocked until one source is excluded or preferred');
 }
 
-function planSync(options: GlobalOptions): { runtime: ReturnType<typeof buildRuntimeContext>; plan: SyncPlan; harnesses: HarnessDefinition[]; skillsCount: number } {
+function planSync(options: GlobalOptions): {
+  runtime: ReturnType<typeof buildRuntimeContext>;
+  plan: SyncPlan;
+  harnesses: HarnessDefinition[];
+  skills: DiscoveredSkill[];
+  state: ReturnType<typeof loadState>;
+} {
   return withRuntime(options, (runtime) => {
     const config = loadConfig(runtime);
     config.projectsRoots = resolveProjectsOverride(config.projectsRoots, options);
-    const harnesses = resolveSelectedHarnesses(resolveHarnesses(runtime.homeDir, config), options);
-    const { skills, sourceDiagnostics } = discoverSkillSet(config);
+    const allHarnesses = resolveHarnesses(runtime.homeDir, config).filter((harness) => harness.enabled);
+    const harnesses = resolveSelectedHarnesses(allHarnesses, options);
+    const { skills, sourceDiagnostics } = discoverSkillSet(config, allHarnesses);
     const state = loadState(runtime);
     const plan = buildSyncPlan(skills, harnesses, config, state, sourceDiagnostics);
-    return { runtime, plan, harnesses, skillsCount: skills.length };
+    return { runtime, plan, harnesses, skills, state };
   });
 }
 
-function printCheckResult(plan: SyncPlan, json: boolean): never {
-  print(json ? (plan as unknown as JsonValue) : renderPlan(plan), json);
+function printDoctorResult(
+  plan: SyncPlan,
+  options: GlobalOptions,
+  state: ReturnType<typeof loadState>,
+  skills: DiscoveredSkill[],
+  harnessCount: number,
+): never {
+  print(
+    options.json
+      ? ({
+        ...plan,
+        summary: {
+          sourcesDiscovered: skills.length,
+          scopedSources: skills.filter((skill) => skill.installHarnessIds && skill.installHarnessIds.length > 0).length,
+          harnessesDetected: harnessCount,
+          expectedInstalls: plan.harnesses
+            .flatMap((harness) => harness.entries)
+            .filter((entry) => entry.action !== 'remove-managed' && entry.action !== 'prune-state')
+            .length,
+          changes: plan.changes,
+          conflicts: plan.conflicts,
+          ok: plan.ok,
+          orphans: plan.orphanSkills?.length || 0,
+        },
+      } as unknown as JsonValue)
+      : renderDoctorReport(plan, state, skills, harnessCount, options.verbose),
+    Boolean(options.json),
+  );
   process.exit(hasConflicts(plan) ? 3 : hasDrift(plan) ? 2 : 0);
 }
 
 cli
-  .command('check', 'Show drift without changing anything')
+  .command('doctor', 'Inspect current sources, drift, and orphan installs')
   .option('--json', 'Output JSON')
   .option('--dry-run', 'Accepted for parity; check is always read-only')
+  .option('--verbose', 'Show detailed plan output')
   .option('--projects-root <path>', 'Override configured projects root')
   .option('--harness <id>', 'Filter to one or more harness ids')
   .option('--home <path>', 'Override HOME for skill-sync state and harness resolution')
   .action((options: GlobalOptions) => {
-    const { plan } = planSync(options);
-    printCheckResult(plan, Boolean(options.json));
+    const { plan, state, skills, harnesses } = planSync(options);
+    printDoctorResult(plan, options, state, skills, harnesses.length);
   });
 
 cli
-  .command('sync', 'Apply the desired symlink state')
+  .command('check', 'Alias for doctor')
   .option('--json', 'Output JSON')
-  .option('--dry-run', 'Show changes without mutating')
+  .option('--dry-run', 'Accepted for parity; check is always read-only')
+  .option('--verbose', 'Show detailed plan output')
   .option('--projects-root <path>', 'Override configured projects root')
   .option('--harness <id>', 'Filter to one or more harness ids')
   .option('--home <path>', 'Override HOME for skill-sync state and harness resolution')
   .action((options: GlobalOptions) => {
-    const { runtime, plan } = planSync(options);
-    if (hasConflicts(plan)) {
-      print(options.json ? (plan as unknown as JsonValue) : renderPlan(plan), Boolean(options.json));
-      process.exit(3);
-    }
-    const state = loadState(runtime);
-    const nextState = applySyncPlan(plan, state, Boolean(options.dryRun));
-    if (!options.dryRun) {
-      saveState(runtime, nextState);
-    }
-    print(options.json ? (plan as unknown as JsonValue) : renderPlan(plan), Boolean(options.json));
+    const { plan, state, skills, harnesses } = planSync(options);
+    printDoctorResult(plan, options, state, skills, harnesses.length);
   });
+
+function runExecute(options: GlobalOptions): void {
+  const { runtime, plan, state } = planSync(options);
+  if (hasConflicts(plan)) {
+    print(
+      options.json
+        ? (plan as unknown as JsonValue)
+        : renderPlan(plan, { verbose: true, includeOrphans: true }),
+      Boolean(options.json),
+    );
+    process.exit(3);
+  }
+  const nextState = applySyncPlan(plan, state, Boolean(options.dryRun));
+  if (!options.dryRun) {
+    saveState(runtime, nextState);
+  }
+  print(
+    options.json
+      ? (plan as unknown as JsonValue)
+      : renderPlan(plan, { verbose: options.verbose, includeOrphans: false }),
+    Boolean(options.json),
+  );
+}
+
+cli
+  .command('execute', 'Apply the desired symlink state')
+  .option('--json', 'Output JSON')
+  .option('--dry-run', 'Show changes without mutating')
+  .option('--verbose', 'Show detailed plan output')
+  .option('--projects-root <path>', 'Override configured projects root')
+  .option('--harness <id>', 'Filter to one or more harness ids')
+  .option('--home <path>', 'Override HOME for skill-sync state and harness resolution')
+  .action(runExecute);
+
+cli
+  .command('sync', 'Alias for execute')
+  .option('--json', 'Output JSON')
+  .option('--dry-run', 'Show changes without mutating')
+  .option('--verbose', 'Show detailed plan output')
+  .option('--projects-root <path>', 'Override configured projects root')
+  .option('--harness <id>', 'Filter to one or more harness ids')
+  .option('--home <path>', 'Override HOME for skill-sync state and harness resolution')
+  .action(runExecute);
 
 cli
   .command('sources', 'List discovered source skills')
@@ -181,7 +393,8 @@ cli
     withRuntime(options, (runtime) => {
       const config = loadConfig(runtime);
       config.projectsRoots = resolveProjectsOverride(config.projectsRoots, options);
-      const { skills, sourceDiagnostics } = discoverSkillSet(config);
+      const harnesses = resolveHarnesses(runtime.homeDir, config).filter((harness) => harness.enabled);
+      const { skills, sourceDiagnostics } = discoverSkillSet(config, harnesses);
       if (options.json) {
         print({ skills, sourceDiagnostics } as unknown as JsonValue, true);
         return;
@@ -366,6 +579,7 @@ cli.help();
 cli.version(version);
 cli.option('--json', 'Output JSON');
 cli.option('--dry-run', 'Show changes without mutating');
+cli.option('--verbose', 'Show detailed plan output');
 cli.option('--projects-root <path>', 'Override configured projects root');
 cli.option('--harness <id>', 'Filter to one or more harness ids');
 cli.option('--home <path>', 'Override HOME for skill-sync state and harness resolution');
@@ -373,6 +587,7 @@ const rawArgs = process.argv.slice(2);
 cli.parse();
 
 const shouldRunDefaultSync =
+  rawArgs.length > 0 &&
   !rawArgs.includes('--help') &&
   !rawArgs.includes('-h') &&
   !rawArgs.includes('--version') &&
@@ -380,15 +595,9 @@ const shouldRunDefaultSync =
   !cli.matchedCommand;
 
 if (shouldRunDefaultSync) {
-  const options = cli.options as GlobalOptions;
-  const { runtime, plan } = planSync(options);
-  if (hasConflicts(plan)) {
-    console.log(renderPlan(plan));
-    process.exit(3);
-  }
-  const nextState = applySyncPlan(plan, loadState(runtime), Boolean(options.dryRun));
-  if (!options.dryRun) {
-    saveState(runtime, nextState);
-  }
-  console.log(renderPlan(plan));
+  print(renderLandingHelp(), false);
+}
+
+if (rawArgs.length === 0) {
+  print(renderLandingHelp(), false);
 }

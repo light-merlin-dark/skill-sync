@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { homedir } from 'node:os';
-import type { EntryInspection, JsonValue, RuntimeContext } from './types';
+import type { EntryInspection, JsonValue, RuntimeContext, SkillFrontmatter } from './types';
 
 export function resolveHomeDir(explicitHome?: string): string {
   const envHome = process.env.SKILL_SYNC_HOME;
@@ -73,15 +73,62 @@ export function slugify(input: string): string {
 
 export function parseSkillFrontmatterName(skillFilePath: string): string | undefined {
   const content = readFileSync(skillFilePath, 'utf8');
-  if (!content.startsWith('---')) {
-    return undefined;
+  return parseSkillFrontmatterContent(content).name;
+}
+
+export function parseSkillFrontmatterContent(content: string): SkillFrontmatter {
+  const frontmatterLines = extractFrontmatterLines(content);
+  if (!frontmatterLines) {
+    return {};
   }
-  const parts = content.split('\n---');
-  if (parts.length < 2) {
-    return undefined;
+
+  const frontmatter: SkillFrontmatter = {};
+  for (let index = 0; index < frontmatterLines.length; index += 1) {
+    const line = frontmatterLines[index]!;
+    const nameMatch = line.match(/^name:\s*(.+)\s*$/);
+    if (nameMatch) {
+      frontmatter.name = stripYamlQuotes(nameMatch[1]!.trim());
+      continue;
+    }
+
+    const scopeMatch = line.match(/^skill-sync-scope:\s*(.+)\s*$/);
+    if (scopeMatch) {
+      const value = stripYamlQuotes(scopeMatch[1]!.trim()).toLowerCase();
+      if (value === 'global' || value === 'local-only') {
+        frontmatter.skillSyncScope = value;
+      }
+      continue;
+    }
+
+    const installOnInlineMatch = line.match(/^skill-sync-install-on:\s*(.+)\s*$/);
+    if (installOnInlineMatch) {
+      const parsed = parseFrontmatterListValue(installOnInlineMatch[1]!);
+      if (parsed.length > 0) {
+        frontmatter.skillSyncInstallOn = parsed;
+      }
+      continue;
+    }
+
+    if (!/^skill-sync-install-on:\s*$/.test(line)) {
+      continue;
+    }
+
+    const values: string[] = [];
+    while (index + 1 < frontmatterLines.length) {
+      const nextLine = frontmatterLines[index + 1]!;
+      const itemMatch = nextLine.match(/^\s*-\s+(.+)\s*$/);
+      if (!itemMatch) {
+        break;
+      }
+      values.push(stripYamlQuotes(itemMatch[1]!.trim()));
+      index += 1;
+    }
+    if (values.length > 0) {
+      frontmatter.skillSyncInstallOn = values;
+    }
   }
-  const match = parts[0].match(/^name:\s*(.+)\s*$/m);
-  return match?.[1]?.trim();
+
+  return frontmatter;
 }
 
 export function hashContent(content: string): string {
@@ -129,8 +176,8 @@ function readFileSyncLink(path: string): string {
 }
 
 export function pathOwnsEntry(rootPath: string, entryPath: string): boolean {
-  const normalizedRoot = resolve(rootPath);
-  const normalizedEntry = resolve(entryPath);
+  const normalizedRoot = normalizeComparablePath(rootPath);
+  const normalizedEntry = normalizeComparablePath(entryPath);
   return normalizedEntry === normalizedRoot || normalizedEntry.startsWith(`${normalizedRoot}/`);
 }
 
@@ -152,4 +199,48 @@ export function removePath(path: string): void {
 
 export function relativeLabel(path: string): string {
   return basename(path);
+}
+
+function extractFrontmatterLines(content: string): string[] | undefined {
+  const lines = content.split(/\r?\n/);
+  if (lines[0] !== '---') {
+    return undefined;
+  }
+  const closingIndex = lines.findIndex((line, index) => index > 0 && line === '---');
+  if (closingIndex === -1) {
+    return undefined;
+  }
+  return lines.slice(1, closingIndex);
+}
+
+function stripYamlQuotes(value: string): string {
+  if (
+    (value.startsWith('"') && value.endsWith('"')) ||
+    (value.startsWith("'") && value.endsWith("'"))
+  ) {
+    return value.slice(1, -1);
+  }
+  return value;
+}
+
+function parseFrontmatterListValue(rawValue: string): string[] {
+  const value = stripYamlQuotes(rawValue.trim());
+  if (!value) {
+    return [];
+  }
+  const inner = value.startsWith('[') && value.endsWith(']')
+    ? value.slice(1, -1)
+    : value;
+  return [...new Set(inner
+    .split(',')
+    .map((item) => stripYamlQuotes(item.trim()))
+    .filter(Boolean))];
+}
+
+function normalizeComparablePath(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
 }

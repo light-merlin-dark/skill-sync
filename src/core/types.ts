@@ -4,6 +4,7 @@ export type Config = {
   discovery: {
     ignorePathPrefixes: string[];
     preferPathPrefixes: string[];
+    includeHarnessRoots: boolean;
   };
   harnesses: {
     custom: CustomHarnessConfig[];
@@ -21,6 +22,12 @@ export type CustomHarnessConfig = {
 export type AliasOverride = {
   default?: string;
   harnesses?: Record<string, string>;
+};
+
+export type SkillFrontmatter = {
+  name?: string;
+  skillSyncScope?: 'global' | 'local-only';
+  skillSyncInstallOn?: string[];
 };
 
 export type State = {
@@ -51,8 +58,10 @@ export type DiscoveredSkill = {
   skillFilePath: string;
   repoPath: string;
   projectsRoot: string;
-  sourceType: 'repo-root' | 'nested';
+  sourceType: 'repo-root' | 'nested' | 'harness-root';
+  harnessId?: string;
   metadataName?: string;
+  installHarnessIds?: string[];
   canonicalSlug: string;
   contentHash: string;
 };

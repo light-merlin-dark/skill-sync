@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from 'bun:test';
-import { existsSync, lstatSync, mkdirSync, readdirSync, rmSync, symlinkSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readlinkSync, readdirSync, rmSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { cleanup, makeFakeProjectsRoot, makeHarnessRoot, makeNestedSkill, makeTopLevelSkill, readSkillFile, writeText } from '../support';
 
@@ -40,7 +40,7 @@ test('syncs, backs up, and restores inside a fake home', () => {
   expect(checkBefore.exitCode).toBe(2);
   expect(checkBefore.stdout.toString()).toContain('create');
 
-  const syncResult = runCli(repoRoot, [...baseArgs], {});
+  const syncResult = runCli(repoRoot, ['execute', ...baseArgs], {});
   expect(syncResult.exitCode).toBe(0);
   expect(lstatSync(join(codexRoot, 'prod')).isSymbolicLink()).toBe(true);
   expect(lstatSync(join(codexRoot, 'stack-foundation')).isSymbolicLink()).toBe(true);
@@ -114,7 +114,7 @@ test('backup create tolerates symlink loops inside a skill source', () => {
   symlinkSync('.', join(prodRepo, 'loop'));
 
   const baseArgs = ['--home', homeDir, '--projects-root', projectsRoot];
-  const syncResult = runCli(repoRoot, [...baseArgs], {});
+  const syncResult = runCli(repoRoot, ['execute', ...baseArgs], {});
   expect(syncResult.exitCode).toBe(0);
   expect(lstatSync(join(codexRoot, 'prod')).isSymbolicLink()).toBe(true);
 
@@ -124,4 +124,101 @@ test('backup create tolerates symlink loops inside a skill source', () => {
   const prodEntry = manifest.harnesses[0]?.entries.find((entry: { name: string }) => entry.name === 'prod');
   expect(prodEntry.skillFiles).toHaveLength(1);
   expect(prodEntry.skillFiles[0]?.relativePath).toBe('SKILL.md');
+});
+
+test('default command shows landing help while execute mutates and doctor diagnoses', () => {
+  const repoRoot = '/Users/merlin/_dev/skill-sync';
+  const { homeDir, projectsRoot } = makeFakeProjectsRoot();
+  tempPaths.push(homeDir);
+
+  const codexRoot = makeHarnessRoot(homeDir, '.codex/skills');
+  makeHarnessRoot(homeDir, '.claude/skills');
+  makeTopLevelSkill(projectsRoot, 'skill-sync', 'skill-sync');
+  mkdirSync(join(codexRoot, 'legacy-skill'), { recursive: true });
+  writeText(join(codexRoot, 'legacy-skill', 'SKILL.md'), '---\nname: legacy-skill\ndescription: Legacy skill\n---\n\n# Legacy\n');
+
+  const baseArgs = ['--home', homeDir, '--projects-root', projectsRoot];
+
+  const helpResult = runCli(repoRoot, [], {});
+  expect(helpResult.exitCode).toBe(0);
+  const helpStdout = helpResult.stdout.toString();
+  expect(helpStdout).toContain('High-signal commands:');
+  expect(helpStdout).toContain('skill-sync doctor');
+  expect(helpStdout).toContain('skill-sync execute');
+
+  const syncResult = runCli(repoRoot, ['execute', ...baseArgs], {});
+  expect(syncResult.exitCode).toBe(0);
+  const syncStdout = syncResult.stdout.toString();
+  expect(syncStdout).toContain('Summary:');
+  expect(syncStdout).toContain('Harness changes:');
+  expect(syncStdout).not.toContain('Orphan installed skills:');
+  expect(syncStdout).not.toContain('missing entry will be created');
+
+  const doctorResult = runCli(repoRoot, ['doctor', ...baseArgs], {});
+  expect(doctorResult.exitCode).toBe(0);
+  const doctorStdout = doctorResult.stdout.toString();
+  expect(doctorStdout).toContain('Doctor');
+  expect(doctorStdout).toContain('Orphans: 0');
+
+  const verboseCheck = runCli(repoRoot, ['doctor', '--verbose', ...baseArgs], {});
+  expect(verboseCheck.exitCode).toBe(0);
+  const verboseStdout = verboseCheck.stdout.toString();
+  expect(verboseStdout).toContain('codex  ');
+  expect(verboseStdout).toContain('legacy-skill');
+
+  const jsonSync = runCli(repoRoot, ['execute', '--json', ...baseArgs], {});
+  expect(jsonSync.exitCode).toBe(0);
+  const parsed = JSON.parse(jsonSync.stdout.toString());
+  expect(parsed.changes).toBe(0);
+  expect(parsed.orphanSkills || []).toHaveLength(0);
+});
+
+test('execute syncs harness-native skills across other detected harness roots', () => {
+  const repoRoot = '/Users/merlin/_dev/skill-sync';
+  const { homeDir, projectsRoot } = makeFakeProjectsRoot();
+  tempPaths.push(homeDir);
+
+  const codexRoot = makeHarnessRoot(homeDir, '.codex/skills');
+  const hermesRoot = makeHarnessRoot(homeDir, '.hermes/skills');
+  mkdirSync(join(codexRoot, 'vendor-only'), { recursive: true });
+  writeText(join(codexRoot, 'vendor-only', 'SKILL.md'), '---\nname: vendor-only\ndescription: Vendor skill\n---\n\n# Vendor\n');
+
+  const result = runCli(repoRoot, ['execute', '--home', homeDir, '--projects-root', projectsRoot], {});
+  expect(result.exitCode).toBe(0);
+  expect(lstatSync(join(hermesRoot, 'vendor-only')).isSymbolicLink()).toBe(true);
+  expect(readlinkSync(join(hermesRoot, 'vendor-only'))).toContain('/.codex/skills/vendor-only');
+
+  const doctorResult = runCli(repoRoot, ['doctor', '--home', homeDir, '--projects-root', projectsRoot], {});
+  expect(doctorResult.exitCode).toBe(0);
+  expect(doctorResult.stdout.toString()).toContain('Sources: 1 discovered skill source(s)');
+});
+
+test('execute keeps harness-local skills on their owning harness only', () => {
+  const repoRoot = '/Users/merlin/_dev/skill-sync';
+  const { homeDir, projectsRoot } = makeFakeProjectsRoot();
+  tempPaths.push(homeDir);
+
+  const agentsRoot = makeHarnessRoot(homeDir, '.agents/skills');
+  const hermesRoot = makeHarnessRoot(homeDir, '.hermes/skills');
+  mkdirSync(join(hermesRoot, 'dogfood'), { recursive: true });
+  writeText(
+    join(hermesRoot, 'dogfood', 'SKILL.md'),
+    '---\nname: dogfood\ndescription: Hermes-only skill\nskill-sync-scope: local-only\n---\n\n# Dogfood\n',
+  );
+
+  const result = runCli(repoRoot, ['execute', '--home', homeDir, '--projects-root', projectsRoot], {});
+  expect(result.exitCode).toBe(0);
+  expect(existsSync(join(agentsRoot, 'dogfood'))).toBe(false);
+  expect(lstatSync(join(hermesRoot, 'dogfood')).isDirectory()).toBe(true);
+
+  const doctorResult = runCli(repoRoot, ['doctor', '--home', homeDir, '--projects-root', projectsRoot], {});
+  expect(doctorResult.exitCode).toBe(0);
+  const doctorStdout = doctorResult.stdout.toString();
+  expect(doctorStdout).toContain('Scope: 0 global, 1 scoped');
+  expect(doctorStdout).toContain('Expected installs: 1');
+
+  const sourcesResult = runCli(repoRoot, ['sources', '--home', homeDir, '--projects-root', projectsRoot], {});
+  expect(sourcesResult.exitCode).toBe(0);
+  expect(sourcesResult.stdout.toString()).toContain('dogfood <= hermes:');
+  expect(sourcesResult.stdout.toString()).toContain('[local-only: hermes]');
 });

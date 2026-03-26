@@ -29,6 +29,7 @@ Sync local repo-backed agent skills across Codex, Claude Code, Cursor, Gemini, H
   - top-level `SKILL.md`
   - nested `skills/*/SKILL.md`
 - Detects installed harness skill roots
+- Supports scoped installs for harness-local skills
 - Plans drift without changing anything
 - Syncs symlinked installs into harnesses
 - Warns when the same skill slug appears multiple times in your configured project roots
@@ -64,19 +65,23 @@ skill-sync sources
 Check drift:
 
 ```bash
-skill-sync check
+skill-sync doctor
+skill-sync doctor --verbose
 ```
 
-Sync:
+Execute:
 
 ```bash
-skill-sync
+skill-sync execute
+skill-sync sync
 ```
 
 Shortcut:
 
 ```bash
 ss
+ss doctor
+ss execute
 ```
 
 ## Default Model
@@ -94,8 +99,9 @@ It complements `npx skills`; it does not replace it.
 Core:
 
 ```bash
+skill-sync doctor
 skill-sync check
-skill-sync
+skill-sync execute
 skill-sync sync
 skill-sync sources
 skill-sync harnesses
@@ -124,12 +130,14 @@ skill-sync harness remove my-tool
 Agent-friendly options:
 
 ```bash
-skill-sync check --json
-skill-sync sync --dry-run --json
+skill-sync doctor --json
+skill-sync execute --dry-run --json
 skill-sync backup restore <id> --dry-run
-skill-sync check --projects-root /path/to/projects --harness codex
-skill-sync check --home /tmp/fake-home
+skill-sync doctor --projects-root /path/to/projects --harness codex
+skill-sync doctor --home /tmp/fake-home
 ```
+
+Bare `skill-sync` / `ss` prints a high-signal landing/help view. Human output defaults to a concise summary. Use `--verbose` when you want the full per-entry plan, including orphan install details during `doctor`.
 
 ## Supported Harness Model
 
@@ -156,10 +164,12 @@ skill-sync harness add codex-beta ~/.codex-beta/skills
 
 ## Safety Rules
 
-- `check` never mutates
-- `sync` only replaces entries the tool owns or missing entries
+- `doctor` never mutates
+- `execute` / `sync` only replace entries the tool owns or missing entries
 - unmanaged conflicts are reported, not overwritten
 - duplicate `_dev` slugs are surfaced before harness-level sync planning
+- harness-installed skills can be promoted as fallback sources when no project-root source exists for the same slug
+- harness-native skills can stay local-only via frontmatter instead of being fanned out everywhere
 - backups snapshot harness `skills` directories before or after risky changes
 - restore can recreate symlinks when the original source still exists
 - restore falls back to minimal backed-up `SKILL.md` content when the source no longer exists
@@ -210,7 +220,7 @@ Each backup includes:
 Example:
 
 ```bash
-skill-sync check --json
+skill-sync doctor --json
 ```
 
 Returns structured data for:
@@ -228,6 +238,13 @@ For every immediate child repo under each configured projects root, `skill-sync`
 
 - `<repo>/SKILL.md`
 - `<repo>/skills/*/SKILL.md`
+
+It also inspects detected harness roots and can treat installed skills there as fallback sources. Project-root sources win over harness-installed sources when the same slug exists in both places.
+
+Harness-root sources can also declare install scope in frontmatter:
+
+- `skill-sync-scope: local-only` keeps that source on its owning harness only
+- `skill-sync-install-on: [codex, hermes]` limits installs to specific harness ids
 
 Canonical install names default to:
 
@@ -262,7 +279,7 @@ bun install
 Run the CLI directly:
 
 ```bash
-bun run src/index.ts check
+bun run src/index.ts doctor
 ```
 
 Run tests:
@@ -276,6 +293,16 @@ Build:
 ```bash
 bun run build
 ```
+
+## Release
+
+Patch release:
+
+```bash
+make release
+```
+
+This bumps the patch version, moves the `## Unreleased` notes into the new versioned changelog section, runs lint/test/build, publishes to npm, commits the release, pushes `main`, tags the release, and creates or updates the GitHub release.
 
 ## Positioning
 
@@ -293,3 +320,7 @@ Use `skill-sync` when:
 ## License
 
 MIT
+
+---
+
+Built by [Robert E. Beckner III (Merlin)](https://rbeckner.com)

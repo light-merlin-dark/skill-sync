@@ -50,6 +50,7 @@ test('uses alias overrides and reports collisions', () => {
     discovery: {
       ignorePathPrefixes: [],
       preferPathPrefixes: [],
+      includeHarnessRoots: true,
     },
     harnesses: { custom: [] },
     aliases: {
@@ -64,7 +65,7 @@ test('uses alias overrides and reports collisions', () => {
   expect(plan.conflicts).toBe(1);
 });
 
-test('treats an unmanaged directory with matching SKILL.md as compatible', () => {
+test('repairs an unmanaged directory with matching SKILL.md into a symlinked install', () => {
   const { homeDir } = makeFakeProjectsRoot();
   tempPaths.push(homeDir);
   const harnessRoot = `${homeDir}/.hermes/skills`;
@@ -97,6 +98,7 @@ test('treats an unmanaged directory with matching SKILL.md as compatible', () =>
     discovery: {
       ignorePathPrefixes: [],
       preferPathPrefixes: [],
+      includeHarnessRoots: true,
     },
     harnesses: { custom: [] },
     aliases: {},
@@ -104,5 +106,6 @@ test('treats an unmanaged directory with matching SKILL.md as compatible', () =>
   const state: State = { version: 1, managedEntries: {} };
   const plan = buildSyncPlan([skill], [harness], config, state);
   expect(plan.conflicts).toBe(0);
-  expect(plan.ok).toBe(1);
+  expect(plan.changes).toBe(1);
+  expect(plan.harnesses[0]?.entries[0]?.action).toBe('repair');
 });

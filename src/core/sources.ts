@@ -1,13 +1,13 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { basename, join, relative, resolve } from 'node:path';
-import type { Config, DiscoveredSkill, SourceDiagnostic, SourceDiagnostics } from './types';
-import { hashContent, listImmediateDirectories, parseSkillFrontmatterName, slugify } from './utils';
+import type { Config, DiscoveredSkill, HarnessDefinition, SourceDiagnostic, SourceDiagnostics } from './types';
+import { hashContent, inspectEntry, listImmediateDirectories, parseSkillFrontmatterContent, pathOwnsEntry, slugify } from './utils';
 
 export function discoverSkills(config: Config): DiscoveredSkill[] {
   return discoverSkillSet(config).skills;
 }
 
-export function discoverSkillSet(config: Config): { skills: DiscoveredSkill[]; sourceDiagnostics: SourceDiagnostics } {
+export function discoverSkillSet(config: Config, harnesses: HarnessDefinition[] = []): { skills: DiscoveredSkill[]; sourceDiagnostics: SourceDiagnostics } {
   const discovered: DiscoveredSkill[] = [];
   const discovery = getDiscoveryConfig(config);
 
@@ -29,6 +29,10 @@ export function discoverSkillSet(config: Config): { skills: DiscoveredSkill[]; s
     }
   }
 
+  if (discovery.includeHarnessRoots) {
+    discovered.push(...discoverHarnessSkills(harnesses));
+  }
+
   const filtered = discovered.filter((skill) => !isIgnoredSource(skill.sourcePath, discovery.ignorePathPrefixes));
   const deduped = new Map<string, DiscoveredSkill>();
   for (const skill of filtered) {
@@ -38,7 +42,7 @@ export function discoverSkillSet(config: Config): { skills: DiscoveredSkill[]; s
       deduped.set(key, skill);
       continue;
     }
-    if (existing.sourceType === 'nested' && skill.sourceType === 'repo-root') {
+    if (compareEquivalentSourcePreference(skill, existing) < 0) {
       deduped.set(key, skill);
     }
   }
@@ -55,29 +59,42 @@ function buildDiscoveredSkill(
   repoPath: string,
   sourcePath: string,
   skillFilePath: string,
-  sourceType: 'repo-root' | 'nested',
+  sourceType: 'repo-root' | 'nested' | 'harness-root',
+  harnessId?: string,
 ): DiscoveredSkill {
-  const metadataName = parseSkillFrontmatterName(skillFilePath);
-  const contentHash = hashContent(readFileSync(skillFilePath, 'utf8'));
+  const normalizedProjectsRoot = normalizeExistingPath(projectsRoot);
+  const normalizedRepoPath = normalizeExistingPath(repoPath);
+  const normalizedSourcePath = normalizeExistingPath(sourcePath);
+  const normalizedSkillFilePath = normalizeExistingPath(skillFilePath);
+  const skillContent = readFileSync(normalizedSkillFilePath, 'utf8');
+  const frontmatter = parseSkillFrontmatterContent(skillContent);
+  const metadataName = frontmatter.name;
+  const contentHash = hashContent(skillContent);
   const fallbackName = sourceType === 'repo-root' ? basename(repoPath) : basename(sourcePath);
   const canonicalSlug = slugify(metadataName || fallbackName);
-  const sourceKey = resolve(sourcePath);
+  const sourceKey = normalizedSourcePath;
   return {
     sourceKey,
-    sourcePath: resolve(sourcePath),
-    skillFilePath: resolve(skillFilePath),
-    repoPath: resolve(repoPath),
-    projectsRoot: resolve(projectsRoot),
+    sourcePath: normalizedSourcePath,
+    skillFilePath: normalizedSkillFilePath,
+    repoPath: normalizedRepoPath,
+    projectsRoot: normalizedProjectsRoot,
     sourceType,
+    harnessId,
     metadataName,
+    installHarnessIds: resolveInstallHarnessIds(sourceType, harnessId, frontmatter),
     canonicalSlug,
     contentHash,
   };
 }
 
 export function describeSkill(skill: DiscoveredSkill): string {
+  const scopeSuffix = describeInstallScope(skill);
+  if (skill.sourceType === 'harness-root' && skill.harnessId) {
+    return `${skill.canonicalSlug} <= ${skill.harnessId}:${skill.sourcePath}${scopeSuffix}`;
+  }
   const repoRelative = relative(skill.projectsRoot, skill.sourcePath) || basename(skill.sourcePath);
-  return `${skill.canonicalSlug} <= ${repoRelative}`;
+  return `${skill.canonicalSlug} <= ${repoRelative}${scopeSuffix}`;
 }
 
 function isIgnoredSource(sourcePath: string, ignorePrefixes: string[]): boolean {
@@ -99,29 +116,41 @@ function resolveGlobalDuplicates(
   const warnings: SourceDiagnostic[] = [];
   const errors: SourceDiagnostic[] = [];
   for (const group of grouped.values()) {
-    if (group.length === 1) {
-      resolved.push(group[0]!);
+    const uniqueGroup = dedupeEquivalentSources(group);
+    const projectBacked = uniqueGroup.filter((skill) => skill.sourceType !== 'harness-root');
+    const preferredGroup = projectBacked.length > 0 ? projectBacked : uniqueGroup;
+    if (preferredGroup.length === 1) {
+      resolved.push(preferredGroup[0]!);
+      if (uniqueGroup.length > preferredGroup.length) {
+        warnings.push({
+          slug: uniqueGroup[0]!.canonicalSlug,
+          severity: 'warning',
+          resolution: 'resolved-by-preference',
+          chosenSourcePath: preferredGroup[0]!.sourcePath,
+          sourcePaths: uniqueGroup.map((skill) => skill.sourcePath).sort(),
+        });
+      }
       continue;
     }
-    const distinctHashes = new Set(group.map((skill) => skill.contentHash));
+    const distinctHashes = new Set(preferredGroup.map((skill) => skill.contentHash));
     if (distinctHashes.size !== 1) {
-      resolved.push(...group);
+      resolved.push(...preferredGroup);
       errors.push({
-        slug: group[0]!.canonicalSlug,
+        slug: preferredGroup[0]!.canonicalSlug,
         severity: 'error',
         resolution: 'unresolved',
-        sourcePaths: group.map((skill) => skill.sourcePath).sort(),
+        sourcePaths: preferredGroup.map((skill) => skill.sourcePath).sort(),
       });
       continue;
     }
-    const sorted = [...group].sort((a, b) => compareDiscoveredSkills(a, b, preferPrefixes));
+    const sorted = [...preferredGroup].sort((a, b) => compareDiscoveredSkills(a, b, preferPrefixes));
     resolved.push(sorted[0]!);
     warnings.push({
-      slug: group[0]!.canonicalSlug,
+      slug: preferredGroup[0]!.canonicalSlug,
       severity: 'warning',
       resolution: 'resolved-by-preference',
       chosenSourcePath: sorted[0]!.sourcePath,
-      sourcePaths: group.map((skill) => skill.sourcePath).sort(),
+      sourcePaths: uniqueGroup.map((skill) => skill.sourcePath).sort(),
     });
   }
   return {
@@ -137,16 +166,35 @@ function getDiscoveryConfig(config: Config): Config['discovery'] {
   return {
     ignorePathPrefixes: config.discovery?.ignorePathPrefixes ?? [],
     preferPathPrefixes: config.discovery?.preferPathPrefixes ?? [],
+    includeHarnessRoots: config.discovery?.includeHarnessRoots !== false,
   };
 }
 
 function compareDiscoveredSkills(a: DiscoveredSkill, b: DiscoveredSkill, preferPrefixes: string[]): number {
+  const typePriority = compareSourceTypePriority(a, b);
+  if (typePriority !== 0) {
+    return typePriority;
+  }
   const rankA = getPreferenceRank(a.sourcePath, preferPrefixes);
   const rankB = getPreferenceRank(b.sourcePath, preferPrefixes);
   if (rankA !== rankB) {
     return rankA - rankB;
   }
   return a.sourcePath.localeCompare(b.sourcePath);
+}
+
+function compareSourceTypePriority(a: DiscoveredSkill, b: DiscoveredSkill): number {
+  return getSourceTypePriority(a.sourceType) - getSourceTypePriority(b.sourceType);
+}
+
+function getSourceTypePriority(sourceType: DiscoveredSkill['sourceType']): number {
+  if (sourceType === 'repo-root') {
+    return 0;
+  }
+  if (sourceType === 'nested') {
+    return 1;
+  }
+  return 2;
 }
 
 function getPreferenceRank(sourcePath: string, preferPrefixes: string[]): number {
@@ -156,4 +204,138 @@ function getPreferenceRank(sourcePath: string, preferPrefixes: string[]): number
 
 function compareDiagnostics(a: SourceDiagnostic, b: SourceDiagnostic): number {
   return a.slug.localeCompare(b.slug) || a.sourcePaths.join('\n').localeCompare(b.sourcePaths.join('\n'));
+}
+
+function discoverHarnessSkills(harnesses: HarnessDefinition[]): DiscoveredSkill[] {
+  const discovered: DiscoveredSkill[] = [];
+  for (const harness of harnesses) {
+    if (!harness.detected) {
+      continue;
+    }
+    let children: string[] = [];
+    try {
+      children = readdirSync(harness.rootPath);
+    } catch {
+      continue;
+    }
+    for (const child of children) {
+      if (shouldIgnoreHarnessSkillName(child)) {
+        continue;
+      }
+      const entryPath = join(harness.rootPath, child);
+      const resolved = resolveHarnessSkillSource(entryPath);
+      if (!resolved) {
+        continue;
+      }
+      const ownerHarnessId = resolveSourceHarnessId(resolved.sourcePath, harnesses) || harness.id;
+      const ownerHarnessRoot = harnesses.find((candidate) => candidate.id === ownerHarnessId)?.rootPath || harness.rootPath;
+      discovered.push(buildDiscoveredSkill(ownerHarnessRoot, resolved.sourcePath, resolved.sourcePath, resolved.skillFilePath, 'harness-root', ownerHarnessId));
+    }
+  }
+  return discovered;
+}
+
+function resolveHarnessSkillSource(entryPath: string): { sourcePath: string; skillFilePath: string } | null {
+  const inspection = inspectEntry(entryPath);
+  if (!inspection.exists) {
+    return null;
+  }
+  if (inspection.type === 'directory') {
+    const skillFilePath = join(entryPath, 'SKILL.md');
+    if (!existsSync(skillFilePath)) {
+      return null;
+    }
+    return {
+      sourcePath: resolve(entryPath),
+      skillFilePath: resolve(skillFilePath),
+    };
+  }
+  if (inspection.type === 'symlink' && inspection.resolvedTarget) {
+    const skillFilePath = join(inspection.resolvedTarget, 'SKILL.md');
+    if (!existsSync(skillFilePath)) {
+      return null;
+    }
+    return {
+      sourcePath: resolve(inspection.resolvedTarget),
+      skillFilePath: resolve(skillFilePath),
+    };
+  }
+  return null;
+}
+
+function shouldIgnoreHarnessSkillName(name: string): boolean {
+  return name.startsWith('.') || name.includes('.backup-');
+}
+
+function normalizeExistingPath(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
+function dedupeEquivalentSources(skills: DiscoveredSkill[]): DiscoveredSkill[] {
+  const unique = new Map<string, DiscoveredSkill>();
+  for (const skill of skills) {
+    const key = `${skill.canonicalSlug}::${skill.sourcePath}`;
+    const existing = unique.get(key);
+    if (!existing || compareEquivalentSourcePreference(skill, existing) < 0) {
+      unique.set(key, skill);
+    }
+  }
+  return [...unique.values()];
+}
+
+function resolveInstallHarnessIds(
+  sourceType: DiscoveredSkill['sourceType'],
+  harnessId: string | undefined,
+  frontmatter: ReturnType<typeof parseSkillFrontmatterContent>,
+): string[] | undefined {
+  if (frontmatter.skillSyncInstallOn && frontmatter.skillSyncInstallOn.length > 0) {
+    return frontmatter.skillSyncInstallOn;
+  }
+  if (sourceType === 'harness-root' && harnessId && frontmatter.skillSyncScope === 'local-only') {
+    return [harnessId];
+  }
+  return undefined;
+}
+
+function describeInstallScope(skill: DiscoveredSkill): string {
+  if (!skill.installHarnessIds || skill.installHarnessIds.length === 0) {
+    return '';
+  }
+  if (
+    skill.sourceType === 'harness-root' &&
+    skill.harnessId &&
+    skill.installHarnessIds.length === 1 &&
+    skill.installHarnessIds[0] === skill.harnessId
+  ) {
+    return ` [local-only: ${skill.harnessId}]`;
+  }
+  return ` [install-on: ${skill.installHarnessIds.join(', ')}]`;
+}
+
+function resolveSourceHarnessId(sourcePath: string, harnesses: HarnessDefinition[]): string | undefined {
+  return harnesses
+    .filter((harness) => pathOwnsEntry(harness.rootPath, sourcePath))
+    .sort((a, b) => b.rootPath.length - a.rootPath.length || a.id.localeCompare(b.id))[0]?.id;
+}
+
+function compareEquivalentSourcePreference(a: DiscoveredSkill, b: DiscoveredSkill): number {
+  const sourceTypePriority = compareSourceTypePriority(a, b);
+  if (sourceTypePriority !== 0) {
+    return sourceTypePriority;
+  }
+  const ownerPriorityA = a.harnessId ? 0 : 1;
+  const ownerPriorityB = b.harnessId ? 0 : 1;
+  if (ownerPriorityA !== ownerPriorityB) {
+    return ownerPriorityA - ownerPriorityB;
+  }
+  const scopePriorityA = a.installHarnessIds ? 0 : 1;
+  const scopePriorityB = b.installHarnessIds ? 0 : 1;
+  if (scopePriorityA !== scopePriorityB) {
+    return scopePriorityA - scopePriorityB;
+  }
+  return a.sourcePath.localeCompare(b.sourcePath);
 }

@@ -1,7 +1,7 @@
 import { ensureDir, inspectEntry, nowIso, pathOwnsEntry, removePath } from './utils';
 import type { Config, DiscoveredSkill, HarnessDefinition, OrphanSkill, PlannedEntry, SourceDiagnostics, State, SyncPlan } from './types';
 import { join, resolve } from 'node:path';
-import { existsSync, readdirSync, readFileSync, symlinkSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync, symlinkSync } from 'node:fs';
 
 export function buildSyncPlan(
   skills: DiscoveredSkill[],
@@ -25,6 +25,9 @@ export function buildSyncPlan(
     const pathClaims = new Map<string, DiscoveredSkill>();
 
     for (const skill of skills) {
+      if (!shouldInstallOnHarness(skill, harnessPlan.harness.id)) {
+        continue;
+      }
       const installName = resolveInstallName(skill, harnessPlan.harness.id, config);
       const destinationPath = join(harnessPlan.harness.rootPath, installName);
       const existingClaim = pathClaims.get(destinationPath);
@@ -147,7 +150,9 @@ function buildPlannedEntry(
 ): PlannedEntry {
   const inspection = inspectEntry(destinationPath);
   const stateEntry = state.managedEntries[destinationPath];
-  const sameSource = inspection.type === 'symlink' && inspection.resolvedTarget === resolve(skill.sourcePath);
+  const sameSource =
+    normalizeComparablePath(destinationPath) === normalizeComparablePath(skill.sourcePath) ||
+    (inspection.type === 'symlink' && inspection.resolvedTarget === resolve(skill.sourcePath));
   const compatibility = inspectCompatibility(destinationPath, skill);
 
   if (!inspection.exists) {
@@ -157,7 +162,7 @@ function buildPlannedEntry(
     return makePlannedEntry(skill, harness, installName, destinationPath, 'ok', 'already synced');
   }
   if (compatibility === 'matching-skill') {
-    return makePlannedEntry(skill, harness, installName, destinationPath, 'ok', 'compatible existing install');
+    return makePlannedEntry(skill, harness, installName, destinationPath, 'repair', 'matching install will be replaced with a symlink to the authoritative source');
   }
   if (stateEntry) {
     return makePlannedEntry(skill, harness, installName, destinationPath, 'repair', 'managed entry drift will be repaired');
@@ -209,6 +214,14 @@ function inspectCompatibility(destinationPath: string, skill: DiscoveredSkill): 
   return 'none';
 }
 
+function normalizeComparablePath(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
 function makePlannedEntry(
   skill: DiscoveredSkill,
   harness: HarnessDefinition,
@@ -227,6 +240,13 @@ function makePlannedEntry(
     sourceKey: skill.sourceKey,
     message,
   };
+}
+
+function shouldInstallOnHarness(skill: DiscoveredSkill, harnessId: string): boolean {
+  if (!skill.installHarnessIds || skill.installHarnessIds.length === 0) {
+    return true;
+  }
+  return skill.installHarnessIds.includes(harnessId);
 }
 
 export function resolveInstallName(skill: DiscoveredSkill, harnessId: string, config: Config): string {

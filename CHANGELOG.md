@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+## 0.1.5
+- Make `make -n release` a true dry run by avoiding recursive `make` inside the release recipe
+
 ## 0.1.4
 - Make bare `skill-sync` / `ss` show a high-signal landing/help view instead of mutating
 - Add `doctor` as the high-signal diagnostic command and `execute` as the explicit mutating command; keep `check` and `sync` as compatibility aliases

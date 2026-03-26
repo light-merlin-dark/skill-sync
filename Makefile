@@ -68,12 +68,16 @@ release:
 			echo "Preparing release $$old_version -> $$new_version"; \
 			node -e "const fs=require('fs'); const path='package.json'; const pkg=JSON.parse(fs.readFileSync(path,'utf8')); pkg.version='$$new_version'; fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n');"; \
 			node -e "const fs=require('fs'); const path='CHANGELOG.md'; const version='$$new_version'; let text=fs.readFileSync(path,'utf8'); if (!/^## Unreleased$$/m.test(text)) { throw new Error('CHANGELOG.md missing ## Unreleased heading'); } text=text.replace(/^## Unreleased$$/m, '## Unreleased\\n\\n## ' + version); fs.writeFileSync(path, text);"; \
-			$(MAKE) pre-publish; \
+			bun run lint; \
+			bun run test; \
+			bun run build; \
 			git add -A; \
 			git commit -m "Release skill-sync v$$new_version"; \
 		else \
 			echo "Working tree clean; releasing existing HEAD"; \
-			$(MAKE) pre-publish; \
+			bun run lint; \
+			bun run test; \
+			bun run build; \
 		fi; \
 		VERSION=$$(node -e "const fs=require('fs'); console.log(JSON.parse(fs.readFileSync('package.json','utf8')).version)"); \
 		tag="v$$VERSION"; \

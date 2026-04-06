@@ -1,5 +1,5 @@
 import { ensureDir, inspectEntry, nowIso, removePath } from './utils';
-import type { Config, DiscoveredSkill, HarnessDefinition, OrphanSkill, PlannedEntry, SourceDiagnostics, State, SyncPlan } from './types';
+import type { Config, DiscoveredSkill, HarnessDefinition, OrphanSkill, PlannedEntry, PlannedPollutedEntry, SourceDiagnostics, State, SyncPlan } from './types';
 import { join, resolve } from 'node:path';
 import { existsSync, readdirSync, readFileSync, realpathSync, symlinkSync } from 'node:fs';
 
@@ -313,4 +313,87 @@ export function hasConflicts(plan: SyncPlan): boolean {
 
 export function hasDrift(plan: SyncPlan): boolean {
   return plan.changes > 0 || plan.sourceDiagnostics.warnings.some((diagnostic) => diagnostic.kind === 'invalid-frontmatter');
+}
+
+export function findPollutedSymlinks(harnesses: HarnessDefinition[], state: State): PlannedPollutedEntry[] {
+  const polluted: PlannedPollutedEntry[] = [];
+  for (const harness of harnesses) {
+    if (!harness.detected) {
+      continue;
+    }
+    const stateEntries = Object.entries(state.managedEntries).filter(
+      ([, entry]) => entry.harnessId === harness.id,
+    );
+    for (const [destinationPath, managed] of stateEntries) {
+      const inspection = inspectEntry(destinationPath);
+      if (inspection.type !== 'symlink' || !inspection.resolvedTarget) {
+        continue;
+      }
+      if (isPollutedTarget(inspection.resolvedTarget)) {
+        polluted.push({
+          harnessId: harness.id,
+          harnessRoot: harness.rootPath,
+          installName: managed.installName,
+          destinationPath,
+          resolvedTarget: inspection.resolvedTarget,
+          reason: describePollutionReason(inspection.resolvedTarget),
+        });
+      }
+    }
+  }
+  return polluted;
+}
+
+export function cleanPollutedSymlinks(
+  polluted: PlannedPollutedEntry[],
+  state: State,
+  dryRun: boolean,
+): State {
+  const nextState: State = {
+    version: state.version,
+    managedEntries: { ...state.managedEntries },
+  };
+  for (const entry of polluted) {
+    if (!dryRun) {
+      removePath(entry.destinationPath);
+    }
+    delete nextState.managedEntries[entry.destinationPath];
+  }
+  return nextState;
+}
+
+function isPollutedTarget(resolvedTarget: string): boolean {
+  return existsSync(join(resolvedTarget, 'SKILL.md')) && directoryLooksLikeProjectRoot(resolvedTarget);
+}
+
+function directoryLooksLikeProjectRoot(dirPath: string): boolean {
+  const indicators = [
+    'package.json',
+    'Cargo.toml',
+    'go.mod',
+    'pyproject.toml',
+    'Makefile',
+    'node_modules',
+    '.git',
+    '.worktrees',
+  ];
+  for (const indicator of indicators) {
+    if (existsSync(join(dirPath, indicator))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function describePollutionReason(resolvedTarget: string): string {
+  const found: string[] = [];
+  for (const indicator of ['node_modules', '.git', '.worktrees', 'package.json', 'Cargo.toml', 'go.mod']) {
+    if (existsSync(join(resolvedTarget, indicator))) {
+      found.push(indicator);
+    }
+  }
+  if (found.length > 0) {
+    return `symlink target is a project root containing ${found.join(', ')}`;
+  }
+  return 'symlink target is a project root, not a scoped skills/ directory';
 }

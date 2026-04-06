@@ -31,7 +31,7 @@ test('syncs, backs up, and restores inside a fake home', () => {
 
   const codexRoot = makeHarnessRoot(homeDir, '.codex/skills');
   makeHarnessRoot(homeDir, '.claude/skills');
-  makeTopLevelSkill(projectsRoot, 'prod-control', 'prod');
+  makeNestedSkill(projectsRoot, 'prod-control', 'prod', 'prod');
   makeNestedSkill(projectsRoot, 'packages-stack', 'stack-foundation', 'StackFoundation');
 
   const baseArgs = ['--home', homeDir, '--projects-root', projectsRoot];
@@ -69,7 +69,7 @@ test('reports unmanaged conflicts instead of clobbering them', () => {
   tempPaths.push(homeDir);
 
   const codexRoot = makeHarnessRoot(homeDir, '.codex/skills');
-  makeTopLevelSkill(projectsRoot, 'coolify-helper', 'coolify-helper');
+  makeNestedSkill(projectsRoot, 'coolify-helper-repo', 'coolify-helper', 'coolify-helper');
   mkdirSync(join(codexRoot, 'coolify-helper'), { recursive: true });
   writeText(join(codexRoot, 'coolify-helper', 'README.txt'), 'unmanaged');
 
@@ -84,8 +84,8 @@ test('execute can continue applying non-conflicting changes when conflicts exist
   tempPaths.push(homeDir);
 
   const codexRoot = makeHarnessRoot(homeDir, '.codex/skills');
-  makeTopLevelSkill(projectsRoot, 'coolify-helper', 'coolify-helper');
-  makeTopLevelSkill(projectsRoot, 'prod-control', 'prod');
+  makeNestedSkill(projectsRoot, 'coolify-helper-repo', 'coolify-helper', 'coolify-helper');
+  makeNestedSkill(projectsRoot, 'prod-control', 'prod', 'prod');
   mkdirSync(join(codexRoot, 'coolify-helper'), { recursive: true });
   writeText(join(codexRoot, 'coolify-helper', 'README.txt'), 'unmanaged');
 
@@ -132,8 +132,8 @@ test('backup create tolerates symlink loops inside a skill source', () => {
   tempPaths.push(homeDir);
 
   const codexRoot = makeHarnessRoot(homeDir, '.codex/skills');
-  const prodRepo = makeTopLevelSkill(projectsRoot, 'prod-control', 'prod');
-  symlinkSync('.', join(prodRepo, 'loop'));
+  const prodSkill = makeNestedSkill(projectsRoot, 'prod-control', 'prod', 'prod');
+  symlinkSync('.', join(prodSkill, 'loop'));
 
   const baseArgs = ['--home', homeDir, '--projects-root', projectsRoot];
   const syncResult = runCli(repoRoot, ['execute', ...baseArgs], {});
@@ -251,7 +251,7 @@ test('doctor flags malformed skill metadata even when sync layout is otherwise f
   tempPaths.push(homeDir);
 
   makeHarnessRoot(homeDir, '.codex/skills');
-  const brokenSkillPath = makeTopLevelSkill(projectsRoot, 'db-cli');
+  const brokenSkillPath = makeNestedSkill(projectsRoot, 'db-cli', 'db-cli');
   writeText(
     join(brokenSkillPath, 'SKILL.md'),
     'name: db\ndescription: Broken frontmatter example\n---\n\n# DB\n',

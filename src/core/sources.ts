@@ -28,23 +28,20 @@ export function discoverSkillSet(config: Config, harnesses: HarnessDefinition[] 
     for (const repoPath of listImmediateDirectories(projectsRoot)) {
       const topLevelSkill = join(repoPath, 'SKILL.md');
       if (existsSync(topLevelSkill)) {
+        const content = readFileSync(topLevelSkill, 'utf8');
+        const frontmatter = parseSkillFrontmatterContent(content);
+        const fallbackName = basename(repoPath);
+        const slug = slugify(frontmatter.name || fallbackName);
         const pollution = detectPollutionIndicators(repoPath);
-        if (pollution.length > 0) {
-          const content = readFileSync(topLevelSkill, 'utf8');
-          const frontmatter = parseSkillFrontmatterContent(content);
-          const fallbackName = basename(repoPath);
-          const slug = slugify(frontmatter.name || fallbackName);
-          pollutionWarnings.push({
-            kind: 'repo-root-pollution',
-            slug,
-            severity: 'warning',
-            resolution: 'move-to-skills-dir',
-            sourcePaths: [topLevelSkill],
-            message: `repo-root skill at ${repoPath} contains ${pollution.join(', ')}. Other CLIs scanning this symlink will discover spurious skills. Move SKILL.md into a skills/${slug}/ subdirectory to create a scoped symlink.`,
-          });
-        } else {
-          discovered.push(buildDiscoveredSkill(projectsRoot, repoPath, repoPath, topLevelSkill, 'repo-root'));
-        }
+        const pollutionDetail = pollution.length > 0 ? ` contains ${pollution.join(', ')}` : '';
+        pollutionWarnings.push({
+          kind: 'repo-root-pollution',
+          slug,
+          severity: 'warning',
+          resolution: 'move-to-skills-dir',
+          sourcePaths: [topLevelSkill],
+          message: `repo-root skill at ${repoPath}${pollutionDetail}. Symlinking an entire project directory causes CLIs to traverse node_modules and other unrelated files. Move SKILL.md into a skills/${slug}/ subdirectory so skill-sync can create a scoped symlink.`,
+        });
       }
 
       const nestedSkillsRoot = join(repoPath, 'skills');
@@ -289,24 +286,65 @@ function resolveHarnessSkillSource(entryPath: string): { sourcePath: string; ski
     return null;
   }
   if (inspection.type === 'directory') {
-    const skillFilePath = join(entryPath, 'SKILL.md');
-    if (!existsSync(skillFilePath)) {
-      return null;
-    }
-    return {
-      sourcePath: resolve(entryPath),
-      skillFilePath: resolve(skillFilePath),
-    };
+    return resolveSkillSourceFromPath(entryPath);
   }
   if (inspection.type === 'symlink' && inspection.resolvedTarget) {
-    const skillFilePath = join(inspection.resolvedTarget, 'SKILL.md');
-    if (!existsSync(skillFilePath)) {
-      return null;
+    return resolveSkillSourceFromPath(inspection.resolvedTarget, entryPath);
+  }
+  return null;
+}
+
+function resolveSkillSourceFromPath(targetPath: string, _linkPath?: string): { sourcePath: string; skillFilePath: string } | null {
+  const skillFilePath = join(targetPath, 'SKILL.md');
+  if (!existsSync(skillFilePath)) {
+    return null;
+  }
+  if (directoryLooksLikeProjectRoot(targetPath)) {
+    const nested = resolveNestedSkillForProjectRoot(targetPath);
+    if (nested) {
+      return nested;
     }
-    return {
-      sourcePath: resolve(inspection.resolvedTarget),
-      skillFilePath: resolve(skillFilePath),
-    };
+  }
+  return {
+    sourcePath: resolve(targetPath),
+    skillFilePath: resolve(skillFilePath),
+  };
+}
+
+const PROJECT_ROOT_INDICATORS = [
+  'package.json',
+  'Cargo.toml',
+  'go.mod',
+  'pyproject.toml',
+  'Makefile',
+  'node_modules',
+  '.git',
+  '.worktrees',
+];
+
+function directoryLooksLikeProjectRoot(dirPath: string): boolean {
+  for (const indicator of PROJECT_ROOT_INDICATORS) {
+    if (existsSync(join(dirPath, indicator))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function resolveNestedSkillForProjectRoot(repoPath: string): { sourcePath: string; skillFilePath: string } | null {
+  const skillsRoot = join(repoPath, 'skills');
+  if (!existsSync(skillsRoot)) {
+    return null;
+  }
+  const entries = listImmediateDirectories(skillsRoot);
+  for (const entry of entries) {
+    const nestedSkill = join(entry, 'SKILL.md');
+    if (existsSync(nestedSkill)) {
+      return {
+        sourcePath: resolve(entry),
+        skillFilePath: resolve(nestedSkill),
+      };
+    }
   }
   return null;
 }

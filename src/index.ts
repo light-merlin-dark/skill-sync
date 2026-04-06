@@ -5,9 +5,9 @@ import { createBackup, listBackups, restoreBackup } from './core/backup';
 import { addHarness, addProjectsRoot, initConfig, loadConfig, loadState, removeHarness, removeProjectsRoot, saveState } from './core/config';
 import { resolveHarnesses, filterHarnesses } from './core/harnesses';
 import { discoverSkillSet, describeSkill } from './core/sources';
-import { applySyncPlan, buildSyncPlan, countPlanActions, hasConflicts, hasDrift } from './core/sync';
+import { applySyncPlan, buildSyncPlan, countPlanActions, findPollutedSymlinks, cleanPollutedSymlinks, hasConflicts, hasDrift } from './core/sync';
 import { buildRuntimeContext } from './core/utils';
-import type { DiscoveredSkill, HarnessDefinition, JsonValue, SourceDiagnostic, SyncPlan } from './core/types';
+import type { DiscoveredSkill, HarnessDefinition, JsonValue, PlannedPollutedEntry, SourceDiagnostic, SyncPlan } from './core/types';
 
 const cli = cac('skill-sync');
 const version = readCliVersion();
@@ -74,6 +74,7 @@ function renderLandingHelp(): string {
     '  skill-sync doctor --verbose Show the full per-entry plan',
     '  skill-sync execute          Apply symlink updates',
     '  skill-sync sync             Alias for execute',
+    '  skill-sync clean            Remove polluted symlinks (repo-root targets)',
     '  skill-sync sources          List discovered source skills',
     '  skill-sync harnesses        List detected harness roots',
     '',
@@ -613,6 +614,54 @@ cli
       return;
     }
     throw new Error(`Unknown roots action: ${action}`);
+  });
+
+cli
+  .command('clean', 'Find and remove polluted symlinks pointing to entire project directories')
+  .option('--json', 'Output JSON')
+  .option('--dry-run', 'Show polluted entries without removing them')
+  .option('--harness <id>', 'Filter to one or more harness ids')
+  .option('--home <path>', 'Override HOME for skill-sync state and harness resolution')
+  .action((options: GlobalOptions) => {
+    withRuntime(options, (runtime) => {
+      const config = loadConfig(runtime);
+      const allHarnesses = resolveHarnesses(runtime.homeDir, config).filter((h) => h.enabled);
+      const harnesses = resolveSelectedHarnesses(allHarnesses, options);
+      const state = loadState(runtime);
+      const polluted = findPollutedSymlinks(harnesses, state);
+
+      if (options.json) {
+        if (options.dryRun) {
+          print({ polluted, count: polluted.length, dryRun: true } as unknown as JsonValue, true);
+        } else {
+          const nextState = cleanPollutedSymlinks(polluted, state, false);
+          saveState(runtime, nextState);
+          print({ removed: polluted.length } as unknown as JsonValue, true);
+        }
+        return;
+      }
+
+      if (polluted.length === 0) {
+        console.log('No polluted symlinks found.');
+        return;
+      }
+
+      console.log(`Found ${polluted.length} polluted symlink(s):`);
+      for (const entry of polluted) {
+        console.log(`  ${entry.destinationPath}`);
+        console.log(`    target: ${entry.resolvedTarget}`);
+        console.log(`    reason: ${entry.reason}`);
+      }
+
+      if (options.dryRun) {
+        console.log(`\n(dry run) ${polluted.length} symlink(s) would be removed`);
+        return;
+      }
+
+      const nextState = cleanPollutedSymlinks(polluted, state, false);
+      saveState(runtime, nextState);
+      console.log(`\nRemoved ${polluted.length} polluted symlink(s). Re-run 'skill-sync execute' to restore clean links.`);
+    });
   });
 
 cli.help();

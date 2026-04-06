@@ -137,6 +137,15 @@ export type SyncPlan = {
   orphanSkills?: OrphanSkill[];
 };
 
+export type PlannedPollutedEntry = {
+  harnessId: string;
+  harnessRoot: string;
+  installName: string;
+  destinationPath: string;
+  resolvedTarget: string;
+  reason: string;
+};
+
 export type BackupManifest = {
   version: 1;
   id: string;

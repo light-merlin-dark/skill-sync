@@ -25,19 +25,19 @@ afterEach(() => {
   }
 });
 
-test('discovers top-level and nested skills', () => {
+test('discovers nested skills and skips repo-root skills as polluted', () => {
   const { homeDir, projectsRoot } = makeFakeProjectsRoot();
   tempPaths.push(homeDir);
   makeTopLevelSkill(projectsRoot, 'prod-control', 'prod');
   makeNestedSkill(projectsRoot, 'packages', 'stack-foundation', 'StackFoundation');
   const config = makeConfig(projectsRoot);
 
-  const skills = discoverSkills(config);
-  expect(skills.map((skill) => skill.canonicalSlug)).toEqual(['stack-foundation', 'prod']);
-  expect(skills.map((skill) => skill.sourceType)).toEqual(['nested', 'repo-root']);
+  const { skills, sourceDiagnostics } = discoverSkillSet(config);
+  expect(skills.map((skill) => skill.canonicalSlug)).toEqual(['stack-foundation']);
+  expect(sourceDiagnostics.warnings.some((w) => w.kind === 'repo-root-pollution' && w.slug === 'prod')).toBe(true);
 });
 
-test('prefers a top-level skill when a nested mirror has the same slug in the same repo', () => {
+test('skips repo-root skill and discovers nested equivalent instead', () => {
   const { homeDir, projectsRoot } = makeFakeProjectsRoot();
   tempPaths.push(homeDir);
   makeTopLevelSkill(projectsRoot, 'vssh', 'vssh');
@@ -45,9 +45,10 @@ test('prefers a top-level skill when a nested mirror has the same slug in the sa
 
   const config = makeConfig(projectsRoot);
 
-  const skills = discoverSkills(config);
+  const { skills, sourceDiagnostics } = discoverSkillSet(config);
   expect(skills).toHaveLength(1);
-  expect(skills[0]?.sourceType).toBe('repo-root');
+  expect(skills[0]?.sourceType).toBe('nested');
+  expect(sourceDiagnostics.warnings.some((w) => w.kind === 'repo-root-pollution' && w.slug === 'vssh')).toBe(true);
 });
 
 test('collapses identical duplicate skills across repos to one canonical source', () => {
@@ -84,11 +85,11 @@ test('reports unresolved duplicate skills as source errors', () => {
   expect(sourceDiagnostics.errors[0]?.sourcePaths).toHaveLength(2);
 });
 
-test('discovers harness-installed skills and prefers project-root sources over harness fallbacks', () => {
+test('discovers harness-installed skills and prefers project sources over harness fallbacks', () => {
   const { homeDir, projectsRoot } = makeFakeProjectsRoot();
   tempPaths.push(homeDir);
 
-  makeTopLevelSkill(projectsRoot, 'skill-sync', 'skill-sync');
+  makeNestedSkill(projectsRoot, 'skill-sync', 'skill-sync', 'skill-sync');
   const codexRoot = makeHarnessRoot(homeDir, '.codex/skills');
   makeTopLevelSkill(codexRoot, 'vendor-only', 'vendor-only');
   makeTopLevelSkill(codexRoot, 'skill-sync-shadow', 'skill-sync');
@@ -178,7 +179,7 @@ test('reports malformed or missing frontmatter as source warnings', () => {
   const { homeDir, projectsRoot } = makeFakeProjectsRoot();
   tempPaths.push(homeDir);
 
-  const brokenRepo = makeTopLevelSkill(projectsRoot, 'db-cli');
+  const brokenRepo = makeNestedSkill(projectsRoot, 'db-cli', 'db-cli');
   writeText(
     `${brokenRepo}/SKILL.md`,
     'name: db\ndescription: Broken frontmatter example\n---\n\n# DB\n',

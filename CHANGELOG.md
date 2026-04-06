@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.3.0 (2025-04-06)
+- **Always skip repo-root SKILL.md files** — top-level skill files at the project root are now treated as pollution warnings regardless of whether the repo has `node_modules` etc. This prevents CLIs (opencode, codex, etc.) from traversing entire project trees when following symlinks
+- **Add `clean` command** — detects and removes polluted symlinks that point to entire project directories instead of scoped `skills/<slug>/` subdirectories
+- **Harness-root pollution resolution** — when a harness symlink target is a project root, skill-sync now resolves to the nested `skills/<slug>/` subdirectory if one exists
+- Updated `doctor` warnings to explain why repo-root skills are skipped and how to fix them
+
 ## 0.2.0
 - Detect and skip repo-root `SKILL.md` files in polluted repos (repos containing `node_modules`, `.worktrees`, or `.refactor-backups`) to prevent agents from discovering spurious skills through broad symlinks — nested `skills/<slug>/SKILL.md` sources are unaffected and always safe
 - Add `--continue-on-conflict` flag to `execute` and `sync` commands: applies non-conflicting changes and exits non-zero when conflicts remain

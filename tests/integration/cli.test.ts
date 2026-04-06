@@ -31,7 +31,7 @@ test('syncs, backs up, and restores inside a fake home', () => {
 
   const codexRoot = makeHarnessRoot(homeDir, '.codex/skills');
   makeHarnessRoot(homeDir, '.claude/skills');
-  makeTopLevelSkill(projectsRoot, 'prod-server', 'prod');
+  makeTopLevelSkill(projectsRoot, 'prod-control', 'prod');
   makeNestedSkill(projectsRoot, 'packages-stack', 'stack-foundation', 'StackFoundation');
 
   const baseArgs = ['--home', homeDir, '--projects-root', projectsRoot];
@@ -51,7 +51,7 @@ test('syncs, backs up, and restores inside a fake home', () => {
   expect(Boolean(backupId)).toBe(true);
 
   rmSync(join(codexRoot, 'prod'), { recursive: true, force: true });
-  rmSync(join(projectsRoot, 'prod-server'), { recursive: true, force: true });
+  rmSync(join(projectsRoot, 'prod-control'), { recursive: true, force: true });
 
   const restoreResult = runCli(repoRoot, ['backup', 'restore', backupId!, '--home', homeDir, '--harness', 'codex'], {});
   expect(restoreResult.exitCode).toBe(0);
@@ -76,6 +76,28 @@ test('reports unmanaged conflicts instead of clobbering them', () => {
   const checkResult = runCli(repoRoot, ['check', '--home', homeDir, '--projects-root', projectsRoot], {});
   expect(checkResult.exitCode).toBe(3);
   expect(checkResult.stdout.toString()).toContain('conflict');
+});
+
+test('execute can continue applying non-conflicting changes when conflicts exist', () => {
+  const repoRoot = '/Users/merlin/_dev/skill-sync';
+  const { homeDir, projectsRoot } = makeFakeProjectsRoot();
+  tempPaths.push(homeDir);
+
+  const codexRoot = makeHarnessRoot(homeDir, '.codex/skills');
+  makeTopLevelSkill(projectsRoot, 'coolify-helper', 'coolify-helper');
+  makeTopLevelSkill(projectsRoot, 'prod-control', 'prod');
+  mkdirSync(join(codexRoot, 'coolify-helper'), { recursive: true });
+  writeText(join(codexRoot, 'coolify-helper', 'README.txt'), 'unmanaged');
+
+  const result = runCli(
+    repoRoot,
+    ['execute', '--continue-on-conflict', '--home', homeDir, '--projects-root', projectsRoot],
+    {},
+  );
+  expect(result.exitCode).toBe(3);
+  expect(result.stdout.toString()).toContain('conflict');
+  expect(lstatSync(join(codexRoot, 'prod')).isSymbolicLink()).toBe(true);
+  expect(readlinkSync(join(codexRoot, 'prod'))).toContain('/prod-control');
 });
 
 test('surfaces source duplicate diagnostics before harness sync', () => {
@@ -110,7 +132,7 @@ test('backup create tolerates symlink loops inside a skill source', () => {
   tempPaths.push(homeDir);
 
   const codexRoot = makeHarnessRoot(homeDir, '.codex/skills');
-  const prodRepo = makeTopLevelSkill(projectsRoot, 'prod-server', 'prod');
+  const prodRepo = makeTopLevelSkill(projectsRoot, 'prod-control', 'prod');
   symlinkSync('.', join(prodRepo, 'loop'));
 
   const baseArgs = ['--home', homeDir, '--projects-root', projectsRoot];

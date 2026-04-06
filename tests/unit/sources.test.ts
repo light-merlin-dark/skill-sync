@@ -28,7 +28,7 @@ afterEach(() => {
 test('discovers top-level and nested skills', () => {
   const { homeDir, projectsRoot } = makeFakeProjectsRoot();
   tempPaths.push(homeDir);
-  makeTopLevelSkill(projectsRoot, 'prod-server', 'prod');
+  makeTopLevelSkill(projectsRoot, 'prod-control', 'prod');
   makeNestedSkill(projectsRoot, 'packages', 'stack-foundation', 'StackFoundation');
   const config = makeConfig(projectsRoot);
 

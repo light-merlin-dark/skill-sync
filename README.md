@@ -75,6 +75,8 @@ Execute:
 ```bash
 skill-sync execute
 skill-sync sync
+# Apply safe changes even if some entries conflict (still exits non-zero)
+skill-sync execute --continue-on-conflict
 ```
 
 Shortcut:

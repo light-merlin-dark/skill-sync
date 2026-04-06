@@ -1,4 +1,4 @@
-import { ensureDir, inspectEntry, nowIso, pathOwnsEntry, removePath } from './utils';
+import { ensureDir, inspectEntry, nowIso, removePath } from './utils';
 import type { Config, DiscoveredSkill, HarnessDefinition, OrphanSkill, PlannedEntry, SourceDiagnostics, State, SyncPlan } from './types';
 import { join, resolve } from 'node:path';
 import { existsSync, readdirSync, readFileSync, realpathSync, symlinkSync } from 'node:fs';
@@ -313,18 +313,4 @@ export function hasConflicts(plan: SyncPlan): boolean {
 
 export function hasDrift(plan: SyncPlan): boolean {
   return plan.changes > 0 || plan.sourceDiagnostics.warnings.some((diagnostic) => diagnostic.kind === 'invalid-frontmatter');
-}
-
-export function pruneStateForRoots(state: State, roots: string[]): State {
-  const nextEntries: State['managedEntries'] = {};
-  for (const [entryPath, managed] of Object.entries(state.managedEntries)) {
-    if (roots.some((root) => pathOwnsEntry(root, entryPath))) {
-      continue;
-    }
-    nextEntries[entryPath] = managed;
-  }
-  return {
-    version: state.version,
-    managedEntries: nextEntries,
-  };
 }

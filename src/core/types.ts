@@ -71,10 +71,10 @@ export type DiscoveredSkill = {
 };
 
 export type SourceDiagnostic = {
-  kind: 'duplicate-slug' | 'invalid-frontmatter';
+  kind: 'duplicate-slug' | 'invalid-frontmatter' | 'repo-root-pollution';
   slug: string;
   severity: 'warning' | 'error';
-  resolution: 'resolved-by-preference' | 'unresolved' | 'fix-skill-frontmatter';
+  resolution: 'resolved-by-preference' | 'unresolved' | 'fix-skill-frontmatter' | 'move-to-skills-dir';
   chosenSourcePath?: string;
   sourcePaths: string[];
   message?: string;

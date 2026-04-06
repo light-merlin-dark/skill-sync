@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.2.0
+- Detect and skip repo-root `SKILL.md` files in polluted repos (repos containing `node_modules`, `.worktrees`, or `.refactor-backups`) to prevent agents from discovering spurious skills through broad symlinks — nested `skills/<slug>/SKILL.md` sources are unaffected and always safe
+- Add `--continue-on-conflict` flag to `execute` and `sync` commands: applies non-conflicting changes and exits non-zero when conflicts remain
+- Move skill-sync's own `SKILL.md` into `skills/skill-sync/` subdirectory as a canonical example of the nested pattern
+- Remove one-time migration script and dead code (`copyMaterialized`, `pruneStateForRoots`)
+
 ## 0.1.6
 - Make `doctor` flag malformed or missing skill frontmatter so Codex-indexing failures are surfaced before sync looks healthy
 - Read the CLI version from `package.json` so `skill-sync --version` stays aligned with the shipped package

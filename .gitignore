@@ -13,3 +13,4 @@ tmp/
 temp/
 *.tgz
 bun.lockb
+tsconfig.tsbuildinfo

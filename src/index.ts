@@ -26,6 +26,7 @@ type GlobalOptions = {
   verbose?: boolean;
   home?: string;
   dryRun?: boolean;
+  continueOnConflict?: boolean;
   projectsRoot?: string | string[];
   harness?: string | string[];
 };
@@ -275,6 +276,18 @@ function appendSourceDiagnostic(lines: string[], diagnostic: SourceDiagnostic): 
     return;
   }
 
+  if (diagnostic.kind === 'repo-root-pollution') {
+    lines.push(`- polluted repo-root skill: ${diagnostic.slug}`);
+    for (const sourcePath of diagnostic.sourcePaths) {
+      lines.push(`  ${sourcePath}`);
+    }
+    if (diagnostic.message) {
+      lines.push(`  ${diagnostic.message}`);
+    }
+    lines.push('  skipped to prevent other CLIs from discovering spurious skills');
+    return;
+  }
+
   lines.push(`- duplicate slug: ${diagnostic.slug}`);
   for (const sourcePath of diagnostic.sourcePaths) {
     lines.push(`  ${sourcePath}`);
@@ -364,7 +377,8 @@ cli
 
 function runExecute(options: GlobalOptions): void {
   const { runtime, plan, state } = planSync(options);
-  if (hasConflicts(plan)) {
+  const hasPlanConflicts = hasConflicts(plan);
+  if (hasPlanConflicts && !options.continueOnConflict) {
     print(
       options.json
         ? (plan as unknown as JsonValue)
@@ -383,12 +397,16 @@ function runExecute(options: GlobalOptions): void {
       : renderPlan(plan, { verbose: options.verbose, includeOrphans: false }),
     Boolean(options.json),
   );
+  if (hasPlanConflicts) {
+    process.exit(3);
+  }
 }
 
 cli
   .command('execute', 'Apply the desired symlink state')
   .option('--json', 'Output JSON')
   .option('--dry-run', 'Show changes without mutating')
+  .option('--continue-on-conflict', 'Apply non-conflicting changes and still exit non-zero if conflicts remain')
   .option('--verbose', 'Show detailed plan output')
   .option('--projects-root <path>', 'Override configured projects root')
   .option('--harness <id>', 'Filter to one or more harness ids')
@@ -399,6 +417,7 @@ cli
   .command('sync', 'Alias for execute')
   .option('--json', 'Output JSON')
   .option('--dry-run', 'Show changes without mutating')
+  .option('--continue-on-conflict', 'Apply non-conflicting changes and still exit non-zero if conflicts remain')
   .option('--verbose', 'Show detailed plan output')
   .option('--projects-root <path>', 'Override configured projects root')
   .option('--harness <id>', 'Filter to one or more harness ids')

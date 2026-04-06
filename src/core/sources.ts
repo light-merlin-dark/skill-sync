@@ -3,19 +3,48 @@ import { basename, join, relative, resolve } from 'node:path';
 import type { Config, DiscoveredSkill, HarnessDefinition, SourceDiagnostic, SourceDiagnostics } from './types';
 import { hashContent, inspectEntry, listImmediateDirectories, parseSkillFrontmatterContent, pathOwnsEntry, slugify } from './utils';
 
+const POLLUTION_INDICATORS = ['node_modules', '.worktrees', '.refactor-backups'];
+
+function detectPollutionIndicators(repoPath: string): string[] {
+  const indicators: string[] = [];
+  for (const name of POLLUTION_INDICATORS) {
+    if (existsSync(join(repoPath, name))) {
+      indicators.push(name);
+    }
+  }
+  return indicators;
+}
+
 export function discoverSkills(config: Config): DiscoveredSkill[] {
   return discoverSkillSet(config).skills;
 }
 
 export function discoverSkillSet(config: Config, harnesses: HarnessDefinition[] = []): { skills: DiscoveredSkill[]; sourceDiagnostics: SourceDiagnostics } {
   const discovered: DiscoveredSkill[] = [];
+  const pollutionWarnings: SourceDiagnostic[] = [];
   const discovery = getDiscoveryConfig(config);
 
   for (const projectsRoot of config.projectsRoots) {
     for (const repoPath of listImmediateDirectories(projectsRoot)) {
       const topLevelSkill = join(repoPath, 'SKILL.md');
       if (existsSync(topLevelSkill)) {
-        discovered.push(buildDiscoveredSkill(projectsRoot, repoPath, repoPath, topLevelSkill, 'repo-root'));
+        const pollution = detectPollutionIndicators(repoPath);
+        if (pollution.length > 0) {
+          const content = readFileSync(topLevelSkill, 'utf8');
+          const frontmatter = parseSkillFrontmatterContent(content);
+          const fallbackName = basename(repoPath);
+          const slug = slugify(frontmatter.name || fallbackName);
+          pollutionWarnings.push({
+            kind: 'repo-root-pollution',
+            slug,
+            severity: 'warning',
+            resolution: 'move-to-skills-dir',
+            sourcePaths: [topLevelSkill],
+            message: `repo-root skill at ${repoPath} contains ${pollution.join(', ')}. Other CLIs scanning this symlink will discover spurious skills. Move SKILL.md into a skills/${slug}/ subdirectory to create a scoped symlink.`,
+          });
+        } else {
+          discovered.push(buildDiscoveredSkill(projectsRoot, repoPath, repoPath, topLevelSkill, 'repo-root'));
+        }
       }
 
       const nestedSkillsRoot = join(repoPath, 'skills');
@@ -50,7 +79,10 @@ export function discoverSkillSet(config: Config, harnesses: HarnessDefinition[] 
   const { skills, sourceDiagnostics } = resolveGlobalDuplicates([...deduped.values()], discovery.preferPathPrefixes);
   return {
     skills: skills.sort((a, b) => a.sourceKey.localeCompare(b.sourceKey)),
-    sourceDiagnostics,
+    sourceDiagnostics: {
+      warnings: [...pollutionWarnings, ...sourceDiagnostics.warnings].sort(compareDiagnostics),
+      errors: sourceDiagnostics.errors,
+    },
   };
 }
 

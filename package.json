@@ -1,6 +1,6 @@
 {
   "name": "@light-merlin-dark/skill-sync",
-  "version": "0.1.6",
+  "version": "0.2.0",
   "description": "Sync local repo-backed agent skills across Codex, Claude Code, Cursor, Gemini, Hermes, and other harnesses.",
   "type": "module",
   "main": "dist/index.js",
@@ -23,7 +23,7 @@
     "README.md",
     "LICENSE",
     "CHANGELOG.md",
-    "SKILL.md"
+    "skills/skill-sync/SKILL.md"
   ],
   "keywords": [
     "agent-skills",

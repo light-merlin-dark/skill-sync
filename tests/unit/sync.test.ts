@@ -84,10 +84,10 @@ test('repairs an unmanaged directory with matching SKILL.md into a symlinked ins
     enabled: true,
   };
   const skill: DiscoveredSkill = {
-    sourceKey: `${homeDir}/prod-server`,
-    sourcePath: `${homeDir}/prod-server`,
+    sourceKey: `${homeDir}/prod-control`,
+    sourcePath: `${homeDir}/prod-control`,
     skillFilePath: join(destination, 'SKILL.md'),
-    repoPath: `${homeDir}/prod-server`,
+    repoPath: `${homeDir}/prod-control`,
     projectsRoot: homeDir,
     sourceType: 'repo-root',
     metadataName: 'prod',

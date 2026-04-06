@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import type { EntryInspection, JsonValue, RuntimeContext, SkillFrontmatter } from './types';
@@ -195,18 +195,6 @@ export function pathOwnsEntry(rootPath: string, entryPath: string): boolean {
   const normalizedRoot = normalizeComparablePath(rootPath);
   const normalizedEntry = normalizeComparablePath(entryPath);
   return normalizedEntry === normalizedRoot || normalizedEntry.startsWith(`${normalizedRoot}/`);
-}
-
-export function copyMaterialized(source: string, destination: string): void {
-  rmSync(destination, { recursive: true, force: true });
-  ensureDir(dirname(destination));
-  cpSync(source, destination, {
-    recursive: true,
-    dereference: true,
-    force: true,
-    errorOnExist: false,
-    preserveTimestamps: false,
-  });
 }
 
 export function removePath(path: string): void {

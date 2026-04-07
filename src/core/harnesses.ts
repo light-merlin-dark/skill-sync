@@ -5,34 +5,38 @@ import { expandHomePath } from './utils';
 type BuiltInHarness = {
   id: string;
   label: string;
-  rootPath: string;
+  rootPaths: string[];
   aliases?: string[];
 };
 
 const BUILT_IN_HARNESSES: BuiltInHarness[] = [
-  { id: 'agents', label: 'Agents', rootPath: '~/.agents/skills', aliases: ['cline', 'warp', 'amp', 'kimi-cli', 'replit', 'universal'] },
-  { id: 'antigravity', label: 'Antigravity', rootPath: '~/.gemini/antigravity/skills' },
-  { id: 'claude-code', label: 'Claude Code', rootPath: '~/.claude/skills' },
-  { id: 'codex', label: 'Codex', rootPath: '~/.codex/skills' },
-  { id: 'cursor', label: 'Cursor', rootPath: '~/.cursor/skills' },
-  { id: 'droid', label: 'Droid', rootPath: '~/.factory/skills' },
-  { id: 'gemini-cli', label: 'Gemini CLI', rootPath: '~/.gemini/skills' },
-  { id: 'github-copilot', label: 'GitHub Copilot', rootPath: '~/.copilot/skills' },
-  { id: 'hermes', label: 'Hermes', rootPath: '~/.hermes/skills' },
-  { id: 'skills', label: 'Skills Root', rootPath: '~/.skills' },
+  { id: 'agents', label: 'Agents', rootPaths: ['~/.agents/skills'], aliases: ['cline', 'warp', 'amp', 'kimi-cli', 'replit', 'universal'] },
+  { id: 'antigravity', label: 'Antigravity', rootPaths: ['~/.gemini/antigravity/skills'] },
+  { id: 'claude-code', label: 'Claude Code', rootPaths: ['~/.claude/skills'] },
+  { id: 'codex', label: 'Codex', rootPaths: ['~/.codex/skills'] },
+  { id: 'cursor', label: 'Cursor', rootPaths: ['~/.cursor/skills'] },
+  { id: 'droid', label: 'Droid', rootPaths: ['~/.factory/skills'] },
+  { id: 'gemini-cli', label: 'Gemini CLI', rootPaths: ['~/.gemini/skills'] },
+  { id: 'github-copilot', label: 'GitHub Copilot', rootPaths: ['~/.copilot/skills'] },
+  { id: 'hermes', label: 'Hermes', rootPaths: ['~/.hermes/skills'] },
+  { id: 'kilocode', label: 'KiloCode', rootPaths: ['~/.kilocode/skills'] },
+  { id: 'opencode', label: 'OpenCode', rootPaths: ['~/.config/opencode/skills', '~/.opencode/skills'] },
+  { id: 'skills', label: 'Skills Root', rootPaths: ['~/.skills'] },
 ];
 
 export function resolveHarnesses(homeDir: string, config: Config): HarnessDefinition[] {
   const builtIns: HarnessDefinition[] = BUILT_IN_HARNESSES.map((entry) => {
-    const rootPath = expandHomePath(entry.rootPath, homeDir);
+    const rootCandidates = entry.rootPaths.map((path) => expandHomePath(path, homeDir));
+    const rootPath = rootCandidates.find((candidate) => existsSync(candidate)) || rootCandidates[0]!;
+    const detected = rootCandidates.some((candidate) => existsSync(candidate));
     return {
       id: entry.id,
       label: entry.label,
       rootPath,
       aliases: entry.aliases,
       kind: 'built-in',
-      detected: existsSync(rootPath),
-      enabled: existsSync(rootPath),
+      detected,
+      enabled: detected,
     };
   });
 

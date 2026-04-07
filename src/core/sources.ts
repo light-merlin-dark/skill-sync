@@ -381,10 +381,23 @@ function resolveInstallHarnessIds(
   if (frontmatter.skillSyncInstallOn && frontmatter.skillSyncInstallOn.length > 0) {
     return frontmatter.skillSyncInstallOn;
   }
-  if (sourceType === 'harness-root' && harnessId && frontmatter.skillSyncScope === 'local-only') {
+  if (sourceType === 'harness-root' && harnessId) {
+    if (frontmatter.skillSyncScope === 'global') {
+      return undefined;
+    }
+    if (frontmatter.skillSyncScope === 'local-only') {
+      return [harnessId];
+    }
+    if (isPortableHarnessRoot(harnessId)) {
+      return undefined;
+    }
     return [harnessId];
   }
   return undefined;
+}
+
+function isPortableHarnessRoot(harnessId: string): boolean {
+  return harnessId === 'agents' || harnessId === 'skills';
 }
 
 function describeInstallScope(skill: DiscoveredSkill): string {

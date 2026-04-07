@@ -155,7 +155,7 @@ test('default command shows landing help while execute mutates and doctor diagno
 
   const codexRoot = makeHarnessRoot(homeDir, '.codex/skills');
   makeHarnessRoot(homeDir, '.claude/skills');
-  makeTopLevelSkill(projectsRoot, 'skill-sync', 'skill-sync');
+  makeNestedSkill(projectsRoot, 'skill-sync', 'skill-sync', 'skill-sync');
   mkdirSync(join(codexRoot, 'legacy-skill'), { recursive: true });
   writeText(join(codexRoot, 'legacy-skill', 'SKILL.md'), '---\nname: legacy-skill\ndescription: Legacy skill\n---\n\n# Legacy\n');
 
@@ -195,7 +195,7 @@ test('default command shows landing help while execute mutates and doctor diagno
   expect(parsed.orphanSkills || []).toHaveLength(0);
 });
 
-test('execute syncs harness-native skills across other detected harness roots', () => {
+test('execute keeps harness-root sources on their owning harness by default', () => {
   const repoRoot = '/Users/merlin/_dev/skill-sync';
   const { homeDir, projectsRoot } = makeFakeProjectsRoot();
   tempPaths.push(homeDir);
@@ -207,12 +207,12 @@ test('execute syncs harness-native skills across other detected harness roots', 
 
   const result = runCli(repoRoot, ['execute', '--home', homeDir, '--projects-root', projectsRoot], {});
   expect(result.exitCode).toBe(0);
-  expect(lstatSync(join(hermesRoot, 'vendor-only')).isSymbolicLink()).toBe(true);
-  expect(readlinkSync(join(hermesRoot, 'vendor-only'))).toContain('/.codex/skills/vendor-only');
+  expect(existsSync(join(hermesRoot, 'vendor-only'))).toBe(false);
 
   const doctorResult = runCli(repoRoot, ['doctor', '--home', homeDir, '--projects-root', projectsRoot], {});
   expect(doctorResult.exitCode).toBe(0);
   expect(doctorResult.stdout.toString()).toContain('Sources: 1 discovered skill source(s)');
+  expect(doctorResult.stdout.toString()).toContain('Scope: 0 global, 1 scoped');
 });
 
 test('execute keeps harness-local skills on their owning harness only', () => {
@@ -262,6 +262,28 @@ test('doctor flags malformed skill metadata even when sync layout is otherwise f
   expect(result.stdout.toString()).toContain('Source warnings:');
   expect(result.stdout.toString()).toContain('invalid skill metadata: db');
   expect(result.stdout.toString()).toContain('frontmatter');
+});
+
+test('doctor surfaces recursive harness traversal hazards that root-only checks miss', () => {
+  const repoRoot = '/Users/merlin/_dev/skill-sync';
+  const { homeDir, projectsRoot } = makeFakeProjectsRoot();
+  tempPaths.push(homeDir);
+
+  makeHarnessRoot(homeDir, '.codex/skills');
+  const agentsRoot = makeHarnessRoot(homeDir, '.agents/skills');
+  mkdirSync(join(homeDir, '.codex', 'skills', 'appcast', 'skills', 'appcast'), { recursive: true });
+  writeText(
+    join(homeDir, '.codex', 'skills', 'appcast', 'skills', 'appcast', 'SKILL.md'),
+    '---\nname: appcast\ndescription: Nested skill only\n---\n\n# Appcast\n',
+  );
+  symlinkSync('../../.codex/skills/appcast', join(agentsRoot, 'appcast'));
+  makeNestedSkill(projectsRoot, 'prod-control', 'prod', 'prod');
+
+  const result = runCli(repoRoot, ['doctor', '--home', homeDir, '--projects-root', projectsRoot, '--json'], {});
+  expect(result.exitCode).toBe(2);
+  const parsed = JSON.parse(result.stdout.toString());
+  expect(parsed.harnessDiagnostics.some((diagnostic: { kind: string; entryName: string }) =>
+    diagnostic.kind === 'missing-root-skill' && diagnostic.entryName === 'appcast')).toBe(true);
 });
 
 test('version command matches package.json', () => {

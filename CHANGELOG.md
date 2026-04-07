@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.3.1
+- Treat vendor harness roots as local-only by default while keeping shared roots like `~/.agents/skills` and `~/.skills` portable unless frontmatter overrides the scope
+- Add built-in harness detection for OpenCode (`~/.config/opencode/skills`, with `~/.opencode/skills` as a legacy fallback) and KiloCode (`~/.kilocode/skills`)
+- Make `doctor` surface recursive harness traversal hazards that OpenCode-style scanners hit: nested descendant `SKILL.md` files, missing root `SKILL.md`, and symlink-loop style traversal errors
+- Add regression coverage for vendor-local harness mirroring, OpenCode/KiloCode detection, and recursive harness pollution
+
 ## 0.3.0 (2025-04-06)
 - **Always skip repo-root SKILL.md files** — top-level skill files at the project root are now treated as pollution warnings regardless of whether the repo has `node_modules` etc. This prevents CLIs (opencode, codex, etc.) from traversing entire project trees when following symlinks
 - **Add `clean` command** — detects and removes polluted symlinks that point to entire project directories instead of scoped `skills/<slug>/` subdirectories

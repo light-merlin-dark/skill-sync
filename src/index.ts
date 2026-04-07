@@ -7,7 +7,15 @@ import { resolveHarnesses, filterHarnesses } from './core/harnesses';
 import { discoverSkillSet, describeSkill } from './core/sources';
 import { applySyncPlan, buildSyncPlan, countPlanActions, findPollutedSymlinks, cleanPollutedSymlinks, hasConflicts, hasDrift } from './core/sync';
 import { buildRuntimeContext } from './core/utils';
-import type { DiscoveredSkill, HarnessDefinition, JsonValue, PlannedPollutedEntry, SourceDiagnostic, SyncPlan } from './core/types';
+import type {
+  DiscoveredSkill,
+  HarnessDefinition,
+  HarnessTraversalDiagnostic,
+  JsonValue,
+  PlannedPollutedEntry,
+  SourceDiagnostic,
+  SyncPlan,
+} from './core/types';
 
 const cli = cac('skill-sync');
 const version = readCliVersion();
@@ -93,6 +101,7 @@ function renderLandingHelp(): string {
 function renderDetailedPlan(plan: SyncPlan, options?: { includeOrphans?: boolean }): string {
   const lines: string[] = [];
   appendSourceDiagnostics(lines, plan.sourceDiagnostics);
+  appendHarnessDiagnostics(lines, plan.harnessDiagnostics);
   if (options?.includeOrphans !== false && plan.orphanSkills && plan.orphanSkills.length > 0) {
     if (lines.length > 0) {
       lines.push('');
@@ -132,6 +141,14 @@ function renderPlan(plan: SyncPlan, options: { verbose?: boolean; includeOrphans
 
   const lines: string[] = [];
   appendSourceDiagnostics(lines, plan.sourceDiagnostics);
+  if (plan.harnessDiagnostics.length > 0) {
+    if (lines.length > 0) {
+      lines.push('');
+    }
+    const affectedHarnesses = new Set(plan.harnessDiagnostics.map((diagnostic) => diagnostic.harnessId)).size;
+    lines.push(`Harness traversal warnings: ${plan.harnessDiagnostics.length} issue(s) across ${affectedHarnesses} harness(es)`);
+    lines.push('Run `skill-sync doctor --verbose` to inspect recursive skill traversal hazards.');
+  }
   if (options.includeOrphans !== false && plan.orphanSkills && plan.orphanSkills.length > 0) {
     if (lines.length > 0) {
       lines.push('');
@@ -197,6 +214,24 @@ function renderDoctorReport(plan: SyncPlan, state: ReturnType<typeof loadState>,
     .length;
   const lines: string[] = [];
   appendSourceDiagnostics(lines, plan.sourceDiagnostics);
+  if (plan.harnessDiagnostics.length > 0) {
+    if (lines.length > 0) {
+      lines.push('');
+    }
+    const groupedDiagnostics = new Map<string, number>();
+    for (const diagnostic of plan.harnessDiagnostics) {
+      groupedDiagnostics.set(diagnostic.harnessId, (groupedDiagnostics.get(diagnostic.harnessId) || 0) + 1);
+    }
+    const topHarnesses = [...groupedDiagnostics.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .slice(0, 5)
+      .map(([harnessId, count]) => `${harnessId}=${count}`)
+      .join(', ');
+    lines.push(`Traversal hazards: ${plan.harnessDiagnostics.length} harness entry issue(s) could confuse recursive parsers like OpenCode`);
+    lines.push(`Top affected harnesses: ${topHarnesses}`);
+    lines.push('Diagnosis: these entries expose nested descendant SKILL.md paths, missing root SKILL.md files, or traversal errors that simple root-only sync checks will miss.');
+    lines.push('Run `skill-sync doctor --verbose` to inspect traversal hazards.');
+  }
   if (lines.length > 0) {
     lines.push('');
   }
@@ -300,6 +335,33 @@ function appendSourceDiagnostic(lines: string[], diagnostic: SourceDiagnostic): 
   lines.push('  sync blocked until one source is excluded or preferred');
 }
 
+function appendHarnessDiagnostics(lines: string[], diagnostics: HarnessTraversalDiagnostic[]): void {
+  if (diagnostics.length === 0) {
+    return;
+  }
+  if (lines.length > 0) {
+    lines.push('');
+  }
+  lines.push('Harness traversal warnings:');
+  for (const diagnostic of diagnostics) {
+    lines.push(`- ${diagnostic.kind}: ${diagnostic.harnessId}/${diagnostic.entryName}`);
+    lines.push(`  ${diagnostic.entryPath}`);
+    if (diagnostic.resolvedTarget) {
+      lines.push(`  resolved target: ${diagnostic.resolvedTarget}`);
+    }
+    lines.push(`  ${diagnostic.message}`);
+    for (const descendant of diagnostic.descendantSkillFiles || []) {
+      lines.push(`  descendant: ${descendant}`);
+    }
+    if (diagnostic.rootSkillFile) {
+      lines.push(`  root: ${diagnostic.rootSkillFile}`);
+    }
+    if (diagnostic.error) {
+      lines.push(`  error: ${diagnostic.error}`);
+    }
+  }
+}
+
 function planSync(options: GlobalOptions): {
   runtime: ReturnType<typeof buildRuntimeContext>;
   plan: SyncPlan;
@@ -341,6 +403,7 @@ function printDoctorResult(
           changes: plan.changes,
           conflicts: plan.conflicts,
           ok: plan.ok,
+          traversalHazards: plan.harnessDiagnostics.length,
           orphans: plan.orphanSkills?.length || 0,
         },
       } as unknown as JsonValue)

@@ -175,6 +175,66 @@ test('preserves the owning harness and local-only scope for mirrored harness-nat
   expect(describeSkill(dogfood!)).toContain('[local-only: hermes]');
 });
 
+test('treats harness-root sources as local-only by default', () => {
+  const { homeDir, projectsRoot } = makeFakeProjectsRoot();
+  tempPaths.push(homeDir);
+
+  const codexRoot = makeHarnessRoot(homeDir, '.codex/skills');
+  const cursorRoot = makeHarnessRoot(homeDir, '.cursor/skills');
+  const vendorSkillPath = makeTopLevelSkill(codexRoot, 'vendor-only', 'vendor-only');
+  linkPath(`${cursorRoot}/vendor-only`, vendorSkillPath);
+
+  const harnesses: HarnessDefinition[] = [
+    {
+      id: 'codex',
+      label: 'Codex',
+      rootPath: codexRoot,
+      kind: 'built-in',
+      detected: true,
+      enabled: true,
+    },
+    {
+      id: 'cursor',
+      label: 'Cursor',
+      rootPath: cursorRoot,
+      kind: 'built-in',
+      detected: true,
+      enabled: true,
+    },
+  ];
+
+  const { skills } = discoverSkillSet(makeConfig(projectsRoot), harnesses);
+  const vendorOnly = skills.find((skill) => skill.canonicalSlug === 'vendor-only');
+  expect(vendorOnly?.harnessId).toBe('codex');
+  expect(vendorOnly?.installHarnessIds).toEqual(['codex']);
+  expect(describeSkill(vendorOnly!)).toContain('[local-only: codex]');
+});
+
+test('keeps shared agents-root skills global by default', () => {
+  const { homeDir, projectsRoot } = makeFakeProjectsRoot();
+  tempPaths.push(homeDir);
+
+  const agentsRoot = makeHarnessRoot(homeDir, '.agents/skills');
+  const sharedSkillPath = makeTopLevelSkill(agentsRoot, 'agent-browser', 'agent-browser');
+
+  const harnesses: HarnessDefinition[] = [
+    {
+      id: 'agents',
+      label: 'Agents',
+      rootPath: agentsRoot,
+      kind: 'built-in',
+      detected: true,
+      enabled: true,
+    },
+  ];
+
+  const { skills } = discoverSkillSet(makeConfig(projectsRoot), harnesses);
+  const sharedSkill = skills.find((skill) => skill.canonicalSlug === 'agent-browser');
+  expect(sharedSkill?.sourcePath.endsWith('/.agents/skills/agent-browser')).toBe(true);
+  expect(sharedSkill?.installHarnessIds).toBeUndefined();
+  expect(describeSkill(sharedSkill!)).not.toContain('local-only');
+});
+
 test('reports malformed or missing frontmatter as source warnings', () => {
   const { homeDir, projectsRoot } = makeFakeProjectsRoot();
   tempPaths.push(homeDir);

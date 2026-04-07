@@ -1,7 +1,18 @@
 import { ensureDir, inspectEntry, nowIso, removePath } from './utils';
-import type { Config, DiscoveredSkill, HarnessDefinition, OrphanSkill, PlannedEntry, PlannedPollutedEntry, SourceDiagnostics, State, SyncPlan } from './types';
+import type {
+  Config,
+  DiscoveredSkill,
+  HarnessDefinition,
+  HarnessTraversalDiagnostic,
+  OrphanSkill,
+  PlannedEntry,
+  PlannedPollutedEntry,
+  SourceDiagnostics,
+  State,
+  SyncPlan,
+} from './types';
 import { join, resolve } from 'node:path';
-import { existsSync, readdirSync, readFileSync, realpathSync, symlinkSync } from 'node:fs';
+import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, symlinkSync } from 'node:fs';
 
 export function buildSyncPlan(
   skills: DiscoveredSkill[],
@@ -130,12 +141,15 @@ export function buildSyncPlan(
     }
   }
 
+  const harnessDiagnostics = findHarnessTraversalDiagnostics(harnesses);
+
   return {
     harnesses: harnessPlans,
     changes,
     conflicts,
     ok,
     sourceDiagnostics: sourceDiagnostics || { warnings: [], errors: [] },
+    harnessDiagnostics,
     orphanSkills: orphanSkills.length ? orphanSkills : undefined,
   };
 }
@@ -312,7 +326,9 @@ export function hasConflicts(plan: SyncPlan): boolean {
 }
 
 export function hasDrift(plan: SyncPlan): boolean {
-  return plan.changes > 0 || plan.sourceDiagnostics.warnings.some((diagnostic) => diagnostic.kind === 'invalid-frontmatter');
+  return plan.changes > 0 ||
+    plan.harnessDiagnostics.length > 0 ||
+    plan.sourceDiagnostics.warnings.some((diagnostic) => diagnostic.kind === 'invalid-frontmatter');
 }
 
 export function findPollutedSymlinks(harnesses: HarnessDefinition[], state: State): PlannedPollutedEntry[] {
@@ -396,4 +412,187 @@ function describePollutionReason(resolvedTarget: string): string {
     return `symlink target is a project root containing ${found.join(', ')}`;
   }
   return 'symlink target is a project root, not a scoped skills/ directory';
+}
+
+export function findHarnessTraversalDiagnostics(harnesses: HarnessDefinition[]): HarnessTraversalDiagnostic[] {
+  const diagnostics: HarnessTraversalDiagnostic[] = [];
+  for (const harness of harnesses) {
+    if (!harness.detected) {
+      continue;
+    }
+    let children: string[] = [];
+    try {
+      children = readdirSync(harness.rootPath);
+    } catch {
+      continue;
+    }
+
+    for (const child of children) {
+      if (shouldIgnoreHarnessEntryName(child)) {
+        continue;
+      }
+      const entryPath = join(harness.rootPath, child);
+      const scan = scanHarnessEntryForSkillTraversal(entryPath);
+      if (scan.descendantSkillFiles.length === 0 && scan.errors.length === 0) {
+        continue;
+      }
+
+      if (!scan.rootSkillFile && scan.descendantSkillFiles.length > 0) {
+        diagnostics.push({
+          harnessId: harness.id,
+          harnessRoot: harness.rootPath,
+          entryName: child,
+          entryPath,
+          kind: 'missing-root-skill',
+          severity: 'warning',
+          message: `entry has no root SKILL.md but exposes ${scan.descendantSkillFiles.length} descendant skill file(s) to recursive scanners`,
+          resolvedTarget: scan.resolvedTarget,
+          descendantSkillFiles: scan.descendantSkillFiles,
+        });
+      }
+
+      const nestedSkillFiles = scan.rootSkillFile
+        ? scan.descendantSkillFiles.filter((path) => path !== scan.rootSkillFile)
+        : scan.descendantSkillFiles;
+      if (nestedSkillFiles.length > 0) {
+        diagnostics.push({
+          harnessId: harness.id,
+          harnessRoot: harness.rootPath,
+          entryName: child,
+          entryPath,
+          kind: 'nested-skill-descendants',
+          severity: 'warning',
+          message: `entry exposes nested descendant skill file(s) that recursive harnesses like OpenCode will also parse`,
+          resolvedTarget: scan.resolvedTarget,
+          rootSkillFile: scan.rootSkillFile,
+          descendantSkillFiles: nestedSkillFiles,
+        });
+      }
+
+      for (const error of scan.errors) {
+        diagnostics.push({
+          harnessId: harness.id,
+          harnessRoot: harness.rootPath,
+          entryName: child,
+          entryPath,
+          kind: 'traversal-error',
+          severity: 'warning',
+          message: `recursive traversal hit ${error.code || 'an error'} while inspecting descendant skill paths`,
+          resolvedTarget: scan.resolvedTarget,
+          error: error.message,
+        });
+      }
+    }
+  }
+
+  return diagnostics.sort((a, b) =>
+    a.harnessId.localeCompare(b.harnessId) ||
+    a.entryPath.localeCompare(b.entryPath) ||
+    a.kind.localeCompare(b.kind),
+  );
+}
+
+type TraversalScan = {
+  resolvedTarget?: string;
+  rootSkillFile?: string;
+  descendantSkillFiles: string[];
+  errors: Array<{ code?: string; message: string }>;
+};
+
+function scanHarnessEntryForSkillTraversal(entryPath: string): TraversalScan {
+  const inspection = inspectEntry(entryPath);
+  if (!inspection.exists) {
+    return { descendantSkillFiles: [], errors: [] };
+  }
+  if (inspection.type !== 'directory' && inspection.type !== 'symlink') {
+    return { descendantSkillFiles: [], errors: [] };
+  }
+
+  const walkRoot = inspection.type === 'symlink' ? inspection.resolvedTarget || entryPath : entryPath;
+  const descendantSkillFiles = new Set<string>();
+  const errors: Array<{ code?: string; message: string }> = [];
+  const pending = [walkRoot];
+  const visited = new Set<string>();
+
+  while (pending.length > 0) {
+    const current = pending.pop()!;
+    let realCurrent: string;
+    try {
+      realCurrent = realpathSync(current);
+    } catch (error) {
+      errors.push(formatTraversalError(current, error));
+      continue;
+    }
+    if (visited.has(realCurrent)) {
+      continue;
+    }
+    visited.add(realCurrent);
+
+    let names: string[] = [];
+    try {
+      names = readdirSync(current);
+    } catch (error) {
+      errors.push(formatTraversalError(current, error));
+      continue;
+    }
+
+    for (const name of names) {
+      const child = join(current, name);
+      if (name === 'SKILL.md') {
+        descendantSkillFiles.add(resolve(child));
+        continue;
+      }
+
+      try {
+        const stats = lstatSync(child);
+        if (stats.isDirectory()) {
+          pending.push(child);
+          continue;
+        }
+        if (!stats.isSymbolicLink()) {
+          continue;
+        }
+
+        let resolvedChild: string;
+        try {
+          resolvedChild = realpathSync(child);
+        } catch (error) {
+          if (getErrorCode(error) === 'ELOOP') {
+            errors.push(formatTraversalError(child, error));
+          }
+          continue;
+        }
+
+        try {
+          const targetStats = lstatSync(resolvedChild);
+          if (targetStats.isDirectory()) {
+            pending.push(child);
+          }
+        } catch {}
+      } catch {}
+    }
+  }
+
+  const rootSkillCandidate = join(walkRoot, 'SKILL.md');
+  const rootSkillFile = existsSync(rootSkillCandidate) ? resolve(rootSkillCandidate) : undefined;
+  return {
+    resolvedTarget: inspection.resolvedTarget,
+    rootSkillFile,
+    descendantSkillFiles: [...descendantSkillFiles].sort(),
+    errors,
+  };
+}
+
+function formatTraversalError(path: string, error: unknown): { code?: string; message: string } {
+  const code = getErrorCode(error);
+  const message = error instanceof Error ? `${path}: ${error.message}` : `${path}: ${String(error)}`;
+  return { code, message };
+}
+
+function shouldIgnoreHarnessEntryName(name: string): boolean {
+  return name.startsWith('.') || name.includes('.backup-');
+}
+
+function getErrorCode(error: unknown): string | undefined {
+  return typeof error === 'object' && error && 'code' in error ? String((error as { code?: string }).code) : undefined;
 }

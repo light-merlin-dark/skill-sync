@@ -34,6 +34,7 @@ Sync local repo-backed agent skills across Codex, Claude Code, Cursor, Gemini, H
 - Syncs symlinked installs into harnesses
 - Warns when the same skill slug appears multiple times in your configured project roots
 - Flags malformed or missing skill frontmatter before Codex or another harness silently skips indexing a skill
+- Flags recursive harness traversal hazards that tools like OpenCode will try to parse, including nested descendant `SKILL.md` files and missing root skill files
 - Refuses to overwrite unmanaged conflicts silently
 - Creates harness `skills` backups and restores them later
 
@@ -157,6 +158,8 @@ Built-in harness roots currently include:
 | Antigravity | `~/.gemini/antigravity/skills` |
 | Droid / Factory | `~/.factory/skills` |
 | Hermes | `~/.hermes/skills` |
+| KiloCode | `~/.kilocode/skills` |
+| OpenCode | `~/.config/opencode/skills` |
 | Plain skills root | `~/.skills` |
 
 You can add more:
@@ -172,8 +175,10 @@ skill-sync harness add codex-beta ~/.codex-beta/skills
 - unmanaged conflicts are reported, not overwritten
 - duplicate `_dev` slugs are surfaced before harness-level sync planning
 - malformed skill metadata is surfaced during `doctor`, including missing YAML frontmatter or missing `name:`
-- harness-installed skills can be promoted as fallback sources when no project-root source exists for the same slug
+- shared harness roots such as `~/.agents/skills` and `~/.skills` can still promote fallback sources when no project-root source exists for the same slug
+- vendor harness roots such as Codex, Hermes, Claude Code, Cursor, OpenCode, KiloCode, and similar tool-local folders default to local-only installs unless frontmatter explicitly widens the scope
 - harness-native skills can stay local-only via frontmatter instead of being fanned out everywhere
+- recursive harness-root pollution is surfaced during `doctor` before OpenCode or another recursive scanner hits duplicate or unreadable descendant skill files
 - backups snapshot harness `skills` directories before or after risky changes
 - restore can recreate symlinks when the original source still exists
 - restore falls back to minimal backed-up `SKILL.md` content when the source no longer exists
@@ -243,12 +248,15 @@ For every immediate child repo under each configured projects root, `skill-sync`
 - `<repo>/SKILL.md`
 - `<repo>/skills/*/SKILL.md`
 
-It also inspects detected harness roots and can treat installed skills there as fallback sources. Project-root sources win over harness-installed sources when the same slug exists in both places.
+It also inspects detected harness roots. Project-root sources win over harness-installed sources when the same slug exists in both places.
 
 Harness-root sources can also declare install scope in frontmatter:
 
 - `skill-sync-scope: local-only` keeps that source on its owning harness only
+- vendor harness roots default to this behavior even without explicit frontmatter
+- shared roots like `agents` and `skills` stay global by default
 - `skill-sync-install-on: [codex, hermes]` limits installs to specific harness ids
+- `skill-sync-scope: global` explicitly widens a harness-root source back out to other harnesses
 
 Canonical install names default to:
 

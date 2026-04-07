@@ -128,12 +128,27 @@ export type OrphanSkill = {
   // - and is NOT in skill-sync managedEntries state.
 };
 
+export type HarnessTraversalDiagnostic = {
+  harnessId: string;
+  harnessRoot: string;
+  entryName: string;
+  entryPath: string;
+  kind: 'missing-root-skill' | 'nested-skill-descendants' | 'traversal-error';
+  severity: 'warning';
+  message: string;
+  resolvedTarget?: string;
+  rootSkillFile?: string;
+  descendantSkillFiles?: string[];
+  error?: string;
+};
+
 export type SyncPlan = {
   harnesses: PlannedHarness[];
   changes: number;
   conflicts: number;
   ok: number;
   sourceDiagnostics: SourceDiagnostics;
+  harnessDiagnostics: HarnessTraversalDiagnostic[];
   orphanSkills?: OrphanSkill[];
 };
 

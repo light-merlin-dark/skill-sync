@@ -1,210 +1,257 @@
 export type Config = {
-  version: 1;
-  projectsRoots: string[];
-  discovery: {
-    ignorePathPrefixes: string[];
-    preferPathPrefixes: string[];
-    includeHarnessRoots: boolean;
-  };
-  harnesses: {
-    custom: CustomHarnessConfig[];
-  };
-  aliases: Record<string, AliasOverride>;
+	version: 1;
+	projectsRoots: string[];
+	discovery: {
+		ignorePathPrefixes: string[];
+		preferPathPrefixes: string[];
+		includeHarnessRoots: boolean;
+	};
+	harnesses: {
+		custom: CustomHarnessConfig[];
+	};
+	aliases: Record<string, AliasOverride>;
 };
 
 export type CustomHarnessConfig = {
-  id: string;
-  rootPath: string;
-  label?: string;
-  enabled?: boolean;
+	id: string;
+	rootPath: string;
+	label?: string;
+	enabled?: boolean;
 };
 
 export type AliasOverride = {
-  default?: string;
-  harnesses?: Record<string, string>;
+	default?: string;
+	harnesses?: Record<string, string>;
 };
 
 export type SkillFrontmatter = {
-  hasFrontmatter: boolean;
-  name?: string;
-  description?: string;
-  skillSyncScope?: 'global' | 'local-only';
-  skillSyncInstallOn?: string[];
-  issues: string[];
+	hasFrontmatter: boolean;
+	name?: string;
+	description?: string;
+	skillSyncScope?: "global" | "local-only";
+	skillSyncInstallOn?: string[];
+	issues: string[];
 };
 
 export type State = {
-  version: 1;
-  managedEntries: Record<string, ManagedEntry>;
+	version: 1;
+	managedEntries: Record<string, ManagedEntry>;
 };
 
+export type InstallMode =
+	| "wrapper-symlink"
+	| "directory-symlink"
+	| "materialized-directory";
+
 export type ManagedEntry = {
-  harnessId: string;
-  sourcePath: string;
-  installName: string;
-  updatedAt: string;
+	harnessId: string;
+	sourcePath: string;
+	installName: string;
+	updatedAt: string;
+	installMode?: InstallMode;
 };
 
 export type HarnessDefinition = {
-  id: string;
-  label: string;
-  rootPath: string;
-  kind: 'built-in' | 'custom';
-  detected: boolean;
-  enabled: boolean;
-  aliases?: string[];
+	id: string;
+	label: string;
+	rootPath: string;
+	kind: "built-in" | "custom";
+	detected: boolean;
+	enabled: boolean;
+	aliases?: string[];
 };
 
 export type DiscoveredSkill = {
-  sourceKey: string;
-  sourcePath: string;
-  skillFilePath: string;
-  repoPath: string;
-  projectsRoot: string;
-  sourceType: 'repo-root' | 'nested' | 'harness-root';
-  harnessId?: string;
-  metadataName?: string;
-  frontmatterIssues: string[];
-  installHarnessIds?: string[];
-  canonicalSlug: string;
-  contentHash: string;
+	sourceKey: string;
+	sourcePath: string;
+	skillFilePath: string;
+	repoPath: string;
+	projectsRoot: string;
+	sourceType: "repo-root" | "nested" | "harness-root";
+	harnessId?: string;
+	metadataName?: string;
+	frontmatterIssues: string[];
+	installHarnessIds?: string[];
+	canonicalSlug: string;
+	contentHash: string;
 };
 
 export type SourceDiagnostic = {
-  kind: 'duplicate-slug' | 'invalid-frontmatter' | 'repo-root-pollution';
-  slug: string;
-  severity: 'warning' | 'error';
-  resolution: 'resolved-by-preference' | 'unresolved' | 'fix-skill-frontmatter' | 'move-to-skills-dir';
-  chosenSourcePath?: string;
-  sourcePaths: string[];
-  message?: string;
+	kind:
+		| "duplicate-slug"
+		| "invalid-frontmatter"
+		| "repo-root-pollution"
+		| "broken-skill-link"
+		| "fanout-high";
+	slug: string;
+	severity: "warning" | "error";
+	resolution:
+		| "resolved-by-preference"
+		| "unresolved"
+		| "fix-skill-frontmatter"
+		| "move-to-skills-dir"
+		| "restore-skill-file"
+		| "reduce-fanout";
+	chosenSourcePath?: string;
+	sourcePaths: string[];
+	message?: string;
 };
 
 export type SourceDiagnostics = {
-  warnings: SourceDiagnostic[];
-  errors: SourceDiagnostic[];
+	warnings: SourceDiagnostic[];
+	errors: SourceDiagnostic[];
+};
+
+export type BrokenNestedSkillLink = {
+	slug: string;
+	repoPath: string;
+	nestedSkillPath: string;
+	skillFilePath: string;
+	linkTarget: string;
+	resolvedTargetPath: string;
+	backupPath?: string;
+};
+
+export type BrokenNestedSkillLinkRepairReport = {
+	dryRun: boolean;
+	brokenLinks: BrokenNestedSkillLink[];
+	repairedLinks: BrokenNestedSkillLink[];
+	skipped: Array<{
+		link: BrokenNestedSkillLink;
+		reason: string;
+	}>;
 };
 
 export type EntryInspection = {
-  exists: boolean;
-  type: 'missing' | 'symlink' | 'directory' | 'file';
-  linkTarget?: string;
-  resolvedTarget?: string;
+	exists: boolean;
+	type: "missing" | "symlink" | "directory" | "file";
+	linkTarget?: string;
+	resolvedTarget?: string;
 };
 
 export type PlannedAction =
-  | 'ok'
-  | 'create'
-  | 'repair'
-  | 'replace-managed'
-  | 'remove-managed'
-  | 'prune-state'
-  | 'conflict';
+	| "ok"
+	| "create"
+	| "repair"
+	| "replace-managed"
+	| "remove-managed"
+	| "remove-broken"
+	| "remove-dir-symlink"
+	| "prune-state"
+	| "conflict";
 
 export type PlannedEntry = {
-  harnessId: string;
-  harnessRoot: string;
-  installName: string;
-  destinationPath: string;
-  action: PlannedAction;
-  sourcePath?: string;
-  sourceKey?: string;
-  message: string;
+	harnessId: string;
+	harnessRoot: string;
+	installName: string;
+	destinationPath: string;
+	action: PlannedAction;
+	installMode?: InstallMode;
+	sourcePath?: string;
+	sourceSkillFilePath?: string;
+	sourceKey?: string;
+	message: string;
 };
 
 export type PlannedHarness = {
-  harness: HarnessDefinition;
-  entries: PlannedEntry[];
+	harness: HarnessDefinition;
+	entries: PlannedEntry[];
 };
 
 export type OrphanSkill = {
-  harnessId: string;
-  harnessRoot: string;
-  installName: string;
-  destinationPath: string;
-  inspection: EntryInspection;
-  // Why it's considered an orphan for the purposes of skill-sync:
-  // - exists in harness root, has SKILL.md, but is NOT part of the discovered/desired source set
-  // - and is NOT in skill-sync managedEntries state.
+	harnessId: string;
+	harnessRoot: string;
+	installName: string;
+	destinationPath: string;
+	inspection: EntryInspection;
+	// Why it's considered an orphan for the purposes of skill-sync:
+	// - exists in harness root, has SKILL.md, but is NOT part of the discovered/desired source set
+	// - and is NOT in skill-sync managedEntries state.
 };
 
 export type HarnessTraversalDiagnostic = {
-  harnessId: string;
-  harnessRoot: string;
-  entryName: string;
-  entryPath: string;
-  kind: 'missing-root-skill' | 'nested-skill-descendants' | 'traversal-error';
-  severity: 'warning';
-  message: string;
-  resolvedTarget?: string;
-  rootSkillFile?: string;
-  descendantSkillFiles?: string[];
-  error?: string;
+	harnessId: string;
+	harnessRoot: string;
+	entryName: string;
+	entryPath: string;
+	kind:
+		| "missing-root-skill"
+		| "nested-skill-descendants"
+		| "traversal-error"
+		| "broken-root-symlink"
+		| "cross-harness-symlink";
+	severity: "warning";
+	message: string;
+	resolvedTarget?: string;
+	rootSkillFile?: string;
+	descendantSkillFiles?: string[];
+	error?: string;
 };
 
 export type SyncPlan = {
-  harnesses: PlannedHarness[];
-  changes: number;
-  conflicts: number;
-  ok: number;
-  sourceDiagnostics: SourceDiagnostics;
-  harnessDiagnostics: HarnessTraversalDiagnostic[];
-  orphanSkills?: OrphanSkill[];
+	harnesses: PlannedHarness[];
+	changes: number;
+	conflicts: number;
+	ok: number;
+	sourceDiagnostics: SourceDiagnostics;
+	harnessDiagnostics: HarnessTraversalDiagnostic[];
+	orphanSkills?: OrphanSkill[];
 };
 
 export type PlannedPollutedEntry = {
-  harnessId: string;
-  harnessRoot: string;
-  installName: string;
-  destinationPath: string;
-  resolvedTarget: string;
-  reason: string;
+	harnessId: string;
+	harnessRoot: string;
+	installName: string;
+	destinationPath: string;
+	resolvedTarget: string;
+	managedBySkillSync: boolean;
+	reason: string;
 };
 
 export type BackupManifest = {
-  version: 1;
-  id: string;
-  createdAt: string;
-  homeDir: string;
-  stateSnapshotIncluded: boolean;
-  harnesses: BackupHarnessSnapshot[];
+	version: 1;
+	id: string;
+	createdAt: string;
+	homeDir: string;
+	stateSnapshotIncluded: boolean;
+	harnesses: BackupHarnessSnapshot[];
 };
 
 export type BackupHarnessSnapshot = {
-  id: string;
-  label: string;
-  rootPath: string;
-  exists: boolean;
-  entries: BackupEntrySnapshot[];
+	id: string;
+	label: string;
+	rootPath: string;
+	exists: boolean;
+	entries: BackupEntrySnapshot[];
 };
 
 export type BackupEntrySnapshot = {
-  name: string;
-  path: string;
-  type: 'symlink' | 'directory' | 'file';
-  linkTarget?: string;
-  targetExists?: boolean;
-  targetType?: 'directory' | 'file';
-  skillFiles: BackupSkillFileSnapshot[];
+	name: string;
+	path: string;
+	type: "symlink" | "directory" | "file";
+	linkTarget?: string;
+	targetExists?: boolean;
+	targetType?: "directory" | "file";
+	skillFiles: BackupSkillFileSnapshot[];
 };
 
 export type BackupSkillFileSnapshot = {
-  relativePath: string;
-  content: string;
+	relativePath: string;
+	content: string;
 };
 
 export type JsonValue =
-  | string
-  | number
-  | boolean
-  | null
-  | JsonValue[]
-  | { [key: string]: JsonValue };
+	| string
+	| number
+	| boolean
+	| null
+	| JsonValue[]
+	| { [key: string]: JsonValue };
 
 export type RuntimeContext = {
-  homeDir: string;
-  stateDir: string;
-  configPath: string;
-  statePath: string;
-  json: boolean;
+	homeDir: string;
+	stateDir: string;
+	configPath: string;
+	statePath: string;
+	json: boolean;
 };

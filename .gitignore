@@ -14,4 +14,6 @@ temp/
 *.tgz
 bun.lockb
 tsconfig.tsbuildinfo
+# Local-only notes / patch tooling
+docs/
 scripts/

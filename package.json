@@ -1,66 +1,67 @@
 {
-  "name": "@light-merlin-dark/skill-sync",
-  "version": "0.3.1",
-  "description": "Sync local repo-backed agent skills across Codex, Claude Code, Cursor, Gemini, Hermes, and other harnesses.",
-  "type": "module",
-  "main": "dist/index.js",
-  "bin": {
-    "skill-sync": "dist/index.js",
-    "skillsync": "dist/index.js",
-    "ss": "dist/index.js"
-  },
-  "scripts": {
-    "build": "bun build ./src/index.ts --target=node --outfile ./dist/index.js && chmod +x dist/index.js",
-    "dev": "bun run src/index.ts",
-    "lint": "tsc --noEmit -p tsconfig.json",
-    "test": "bun test tests/unit tests/integration",
-    "test:unit": "bun test tests/unit",
-    "test:integration": "bun test tests/integration",
-    "prepublishOnly": "npm run lint && npm run test && npm run build"
-  },
-  "files": [
-    "dist",
-    "README.md",
-    "LICENSE",
-    "CHANGELOG.md",
-    "skills/skill-sync/SKILL.md"
-  ],
-  "keywords": [
-    "agent-skills",
-    "skills",
-    "cli",
-    "codex",
-    "claude-code",
-    "cursor",
-    "gemini",
-    "hermes",
-    "copilot",
-    "sync",
-    "symlink",
-    "developer-tools"
-  ],
-  "author": "Merlin",
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/light-merlin-dark/skill-sync.git"
-  },
-  "homepage": "https://github.com/light-merlin-dark/skill-sync#readme",
-  "bugs": {
-    "url": "https://github.com/light-merlin-dark/skill-sync/issues"
-  },
-  "publishConfig": {
-    "access": "public",
-    "registry": "https://registry.npmjs.org/"
-  },
-  "engines": {
-    "node": ">=20.0.0"
-  },
-  "dependencies": {
-    "cac": "^6.7.14"
-  },
-  "devDependencies": {
-    "@types/node": "^24.5.2",
-    "typescript": "^5.9.2"
-  }
+	"name": "@light-merlin-dark/skill-sync",
+  "version": "0.3.6",
+	"description": "Sync local repo-backed agent skills across Codex, Claude Code, Cursor, Gemini, Hermes, and other harnesses.",
+	"type": "module",
+	"main": "dist/index.js",
+	"bin": {
+		"skill-sync": "dist/index.js",
+		"skillsync": "dist/index.js",
+		"ss": "dist/index.js"
+	},
+	"scripts": {
+		"build": "bun build ./src/index.ts --target=node --outfile ./dist/index.js && chmod +x dist/index.js",
+		"dev": "bun run src/index.ts",
+		"lint": "tsc --noEmit -p tsconfig.json",
+		"test": "bun test tests/unit tests/integration",
+		"test:unit": "bun test tests/unit",
+		"test:integration": "bun test tests/integration",
+		"prepublishOnly": "npm run lint && npm run test && npm run build"
+	},
+	"files": [
+		"dist",
+		"README.md",
+		"LICENSE",
+		"CHANGELOG.md",
+		"skills/skill-sync/SKILL.md"
+	],
+	"keywords": [
+		"agent-skills",
+		"skills",
+		"cli",
+		"codex",
+		"claude-code",
+		"cursor",
+		"gemini",
+		"hermes",
+		"copilot",
+		"sync",
+		"symlink",
+		"developer-tools"
+	],
+	"author": "Merlin",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/light-merlin-dark/skill-sync.git"
+	},
+	"homepage": "https://github.com/light-merlin-dark/skill-sync#readme",
+	"bugs": {
+		"url": "https://github.com/light-merlin-dark/skill-sync/issues"
+	},
+	"publishConfig": {
+		"access": "public",
+		"registry": "https://registry.npmjs.org/"
+	},
+	"engines": {
+		"node": ">=20.0.0"
+	},
+	"dependencies": {
+		"cac": "^6.7.14",
+		"yaml": "^2.8.3"
+	},
+	"devDependencies": {
+		"@types/node": "^24.5.2",
+		"typescript": "^5.9.2"
+	}
 }

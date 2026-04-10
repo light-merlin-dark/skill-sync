@@ -1,250 +1,518 @@
-import { createHash } from 'node:crypto';
-import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { basename, dirname, join, resolve } from 'node:path';
-import { homedir } from 'node:os';
-import type { EntryInspection, JsonValue, RuntimeContext, SkillFrontmatter } from './types';
+import { createHash } from "node:crypto";
+import {
+	chmodSync,
+	copyFileSync,
+	existsSync,
+	lstatSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	readlinkSync,
+	realpathSync,
+	rmSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { parseDocument } from "yaml";
+import type {
+	EntryInspection,
+	JsonValue,
+	RuntimeContext,
+	SkillFrontmatter,
+} from "./types";
 
-export function resolveHomeDir(explicitHome?: string): string {
-  const envHome = process.env.SKILL_SYNC_HOME;
-  if (explicitHome) {
-    return resolve(explicitHome);
-  }
-  if (envHome) {
-    return resolve(envHome);
-  }
-  return homedir();
+function resolveHomeDir(explicitHome?: string): string {
+	const envHome = process.env.SKILL_SYNC_HOME;
+	if (explicitHome) {
+		return resolve(explicitHome);
+	}
+	if (envHome) {
+		return resolve(envHome);
+	}
+	return homedir();
 }
 
-export function buildRuntimeContext(options: { home?: string; json?: boolean }): RuntimeContext {
-  const homeDir = resolveHomeDir(options.home);
-  const stateDir = join(homeDir, '.skill-sync');
-  return {
-    homeDir,
-    stateDir,
-    configPath: join(stateDir, 'config.json'),
-    statePath: join(stateDir, 'state.json'),
-    json: Boolean(options.json),
-  };
+export function buildRuntimeContext(options: {
+	home?: string;
+	json?: boolean;
+}): RuntimeContext {
+	const homeDir = resolveHomeDir(options.home);
+	const stateDir = join(homeDir, ".skill-sync");
+	return {
+		homeDir,
+		stateDir,
+		configPath: join(stateDir, "config.json"),
+		statePath: join(stateDir, "state.json"),
+		json: Boolean(options.json),
+	};
 }
 
 export function expandHomePath(input: string, homeDir: string): string {
-  if (input === '~') {
-    return homeDir;
-  }
-  if (input.startsWith('~/')) {
-    return join(homeDir, input.slice(2));
-  }
-  return resolve(input);
+	if (input === "~") {
+		return homeDir;
+	}
+	if (input.startsWith("~/")) {
+		return join(homeDir, input.slice(2));
+	}
+	return resolve(input);
 }
 
 export function ensureDir(path: string): void {
-  mkdirSync(path, { recursive: true });
+	mkdirSync(path, { recursive: true });
 }
 
 export function readJsonFile<T>(path: string): T | null {
-  if (!existsSync(path)) {
-    return null;
-  }
-  return JSON.parse(readFileSync(path, 'utf8')) as T;
+	if (!existsSync(path)) {
+		return null;
+	}
+	return JSON.parse(readFileSync(path, "utf8")) as T;
 }
 
-export function writeJsonFile(path: string, value: JsonValue | Record<string, unknown>): void {
-  ensureDir(dirname(path));
-  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+export function writeJsonFile(
+	path: string,
+	value: JsonValue | Record<string, unknown>,
+): void {
+	ensureDir(dirname(path));
+	writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
 export function nowIso(): string {
-  return new Date().toISOString();
+	return new Date().toISOString();
 }
 
 export function timestampId(): string {
-  return nowIso().replace(/[:.]/g, '-');
+	return nowIso().replace(/[:.]/g, "-");
 }
 
 export function slugify(input: string): string {
-  return input
-    .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
-    .replace(/[_\s]+/g, '-')
-    .replace(/[^a-zA-Z0-9.-]+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '')
-    .toLowerCase();
+	return input
+		.replace(/([a-z0-9])([A-Z])/g, "$1-$2")
+		.replace(/[_\s]+/g, "-")
+		.replace(/[^a-zA-Z0-9.-]+/g, "-")
+		.replace(/-+/g, "-")
+		.replace(/^-|-$/g, "")
+		.toLowerCase();
 }
 
-export function parseSkillFrontmatterName(skillFilePath: string): string | undefined {
-  const content = readFileSync(skillFilePath, 'utf8');
-  return parseSkillFrontmatterContent(content).name;
-}
+export function parseSkillFrontmatterContent(
+	content: string,
+): SkillFrontmatter {
+	const frontmatterBlock = extractFrontmatterBlock(content);
+	if (!frontmatterBlock) {
+		return {
+			hasFrontmatter: false,
+			issues: ["missing YAML frontmatter block (`---` header)"],
+		};
+	}
 
-export function parseSkillFrontmatterContent(content: string): SkillFrontmatter {
-  const frontmatterLines = extractFrontmatterLines(content);
-  if (!frontmatterLines) {
-    return {
-      hasFrontmatter: false,
-      issues: ['missing YAML frontmatter block (`---` header)'],
-    };
-  }
+	const frontmatter: SkillFrontmatter = {
+		hasFrontmatter: true,
+		issues: [],
+	};
+	const parsedDocument = parseDocument(frontmatterBlock, {
+		prettyErrors: true,
+	});
+	if (parsedDocument.errors.length > 0) {
+		frontmatter.issues.push(
+			`invalid YAML frontmatter: ${formatYamlError(parsedDocument.errors[0]?.message || "unknown parse error")}`,
+		);
+		return frontmatter;
+	}
 
-  const frontmatter: SkillFrontmatter = {
-    hasFrontmatter: true,
-    issues: [],
-  };
-  for (let index = 0; index < frontmatterLines.length; index += 1) {
-    const line = frontmatterLines[index]!;
-    const nameMatch = line.match(/^name:\s*(.+)\s*$/);
-    if (nameMatch) {
-      frontmatter.name = stripYamlQuotes(nameMatch[1]!.trim());
-      continue;
-    }
+	const parsed = parsedDocument.toJS();
+	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+		frontmatter.issues.push("frontmatter must be a YAML mapping/object");
+		return frontmatter;
+	}
 
-    const descriptionMatch = line.match(/^description:\s*(.+)\s*$/);
-    if (descriptionMatch) {
-      frontmatter.description = stripYamlQuotes(descriptionMatch[1]!.trim());
-      continue;
-    }
+	const metadata = parsed as Record<string, unknown>;
+	if (typeof metadata.name === "string") {
+		frontmatter.name = metadata.name.trim();
+	} else if (metadata.name !== undefined) {
+		frontmatter.issues.push("`name` must be a string");
+	}
 
-    const scopeMatch = line.match(/^skill-sync-scope:\s*(.+)\s*$/);
-    if (scopeMatch) {
-      const value = stripYamlQuotes(scopeMatch[1]!.trim()).toLowerCase();
-      if (value === 'global' || value === 'local-only') {
-        frontmatter.skillSyncScope = value;
-      }
-      continue;
-    }
+	if (typeof metadata.description === "string") {
+		frontmatter.description = metadata.description.trim();
+	} else if (metadata.description !== undefined) {
+		frontmatter.issues.push("`description` must be a string");
+	}
 
-    const installOnInlineMatch = line.match(/^skill-sync-install-on:\s*(.+)\s*$/);
-    if (installOnInlineMatch) {
-      const parsed = parseFrontmatterListValue(installOnInlineMatch[1]!);
-      if (parsed.length > 0) {
-        frontmatter.skillSyncInstallOn = parsed;
-      }
-      continue;
-    }
+	if (metadata["skill-sync-scope"] !== undefined) {
+		if (typeof metadata["skill-sync-scope"] !== "string") {
+			frontmatter.issues.push(
+				"`skill-sync-scope` must be `global` or `local-only`",
+			);
+		} else {
+			const scope = metadata["skill-sync-scope"].trim().toLowerCase();
+			if (scope === "global" || scope === "local-only") {
+				frontmatter.skillSyncScope = scope;
+			} else {
+				frontmatter.issues.push(
+					"`skill-sync-scope` must be `global` or `local-only`",
+				);
+			}
+		}
+	}
 
-    if (!/^skill-sync-install-on:\s*$/.test(line)) {
-      continue;
-    }
+	if (metadata["skill-sync-install-on"] !== undefined) {
+		const installOn = parseInstallOnValue(metadata["skill-sync-install-on"]);
+		if (installOn.length > 0) {
+			frontmatter.skillSyncInstallOn = installOn;
+		} else {
+			frontmatter.issues.push(
+				"`skill-sync-install-on` must be a string or list of strings",
+			);
+		}
+	}
 
-    const values: string[] = [];
-    while (index + 1 < frontmatterLines.length) {
-      const nextLine = frontmatterLines[index + 1]!;
-      const itemMatch = nextLine.match(/^\s*-\s+(.+)\s*$/);
-      if (!itemMatch) {
-        break;
-      }
-      values.push(stripYamlQuotes(itemMatch[1]!.trim()));
-      index += 1;
-    }
-    if (values.length > 0) {
-      frontmatter.skillSyncInstallOn = values;
-    }
-  }
+	if (!frontmatter.name) {
+		frontmatter.issues.push("missing required `name:` in frontmatter");
+	}
 
-  if (!frontmatter.name) {
-    frontmatter.issues.push('missing required `name:` in frontmatter');
-  }
-
-  return frontmatter;
+	return frontmatter;
 }
 
 export function hashContent(content: string): string {
-  return createHash('sha1').update(content).digest('hex');
+	return createHash("sha1").update(content).digest("hex");
 }
 
 export function listImmediateDirectories(path: string): string[] {
-  if (!existsSync(path)) {
-    return [];
-  }
-  return readdirSync(path)
-    .map((name) => join(path, name))
-    .filter((candidate) => {
-      try {
-        return lstatSync(candidate).isDirectory();
-      } catch {
-        return false;
-      }
-    });
+	if (!existsSync(path)) {
+		return [];
+	}
+	return readdirSync(path)
+		.map((name) => join(path, name))
+		.filter((candidate) => {
+			try {
+				return lstatSync(candidate).isDirectory();
+			} catch {
+				return false;
+			}
+		});
 }
 
 export function inspectEntry(path: string): EntryInspection {
-  if (!existsSync(path)) {
-    return { exists: false, type: 'missing' };
-  }
-  const stats = lstatSync(path);
-  if (stats.isSymbolicLink()) {
-    const linkTarget = readFileSyncLink(path);
-    let resolvedTarget: string | undefined;
-    try {
-      resolvedTarget = realpathSync(path);
-    } catch {
-      resolvedTarget = undefined;
-    }
-    return { exists: true, type: 'symlink', linkTarget, resolvedTarget };
-  }
-  if (stats.isDirectory()) {
-    return { exists: true, type: 'directory' };
-  }
-  return { exists: true, type: 'file' };
+	if (!existsSync(path)) {
+		return { exists: false, type: "missing" };
+	}
+	const stats = lstatSync(path);
+	if (stats.isSymbolicLink()) {
+		const linkTarget = readFileSyncLink(path);
+		let resolvedTarget: string | undefined;
+		try {
+			resolvedTarget = realpathSync(path);
+		} catch {
+			resolvedTarget = undefined;
+		}
+		return { exists: true, type: "symlink", linkTarget, resolvedTarget };
+	}
+	if (stats.isDirectory()) {
+		return { exists: true, type: "directory" };
+	}
+	return { exists: true, type: "file" };
 }
 
 function readFileSyncLink(path: string): string {
-  return readlinkSync(path);
+	return readlinkSync(path);
 }
 
 export function pathOwnsEntry(rootPath: string, entryPath: string): boolean {
-  const normalizedRoot = normalizeComparablePath(rootPath);
-  const normalizedEntry = normalizeComparablePath(entryPath);
-  return normalizedEntry === normalizedRoot || normalizedEntry.startsWith(`${normalizedRoot}/`);
+	const normalizedRoot = normalizeComparablePath(rootPath);
+	const normalizedEntry = normalizeComparablePath(entryPath);
+	return (
+		normalizedEntry === normalizedRoot ||
+		normalizedEntry.startsWith(`${normalizedRoot}/`)
+	);
 }
 
 export function removePath(path: string): void {
-  rmSync(path, { recursive: true, force: true });
+	rmSync(path, { recursive: true, force: true });
 }
 
-export function relativeLabel(path: string): string {
-  return basename(path);
+export function copyMaterializedDirectory(
+	sourcePath: string,
+	destinationPath: string,
+): void {
+	copyMaterializedNode(sourcePath, destinationPath, new Set<string>());
 }
 
-function extractFrontmatterLines(content: string): string[] | undefined {
-  const lines = content.split(/\r?\n/);
-  if (lines[0] !== '---') {
-    return undefined;
-  }
-  const closingIndex = lines.findIndex((line, index) => index > 0 && line === '---');
-  if (closingIndex === -1) {
-    return undefined;
-  }
-  return lines.slice(1, closingIndex);
+export function directoriesMatchMaterialized(
+	sourcePath: string,
+	destinationPath: string,
+): boolean {
+	if (!existsSync(sourcePath) || !existsSync(destinationPath)) {
+		return false;
+	}
+	try {
+		if (treeContainsSymlinks(destinationPath)) {
+			return false;
+		}
+		const sourceSnapshot = snapshotMaterializedTree(sourcePath);
+		const destinationSnapshot = snapshotMaterializedTree(destinationPath);
+		if (sourceSnapshot.size !== destinationSnapshot.size) {
+			return false;
+		}
+		for (const [relativePath, descriptor] of sourceSnapshot) {
+			if (destinationSnapshot.get(relativePath) !== descriptor) {
+				return false;
+			}
+		}
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+function extractFrontmatterBlock(content: string): string | undefined {
+	const lines = content.split(/\r?\n/);
+	if (lines[0] !== "---") {
+		return undefined;
+	}
+	const closingIndex = lines.findIndex(
+		(line, index) => index > 0 && line === "---",
+	);
+	if (closingIndex === -1) {
+		return undefined;
+	}
+	return lines.slice(1, closingIndex).join("\n");
 }
 
 function stripYamlQuotes(value: string): string {
-  if (
-    (value.startsWith('"') && value.endsWith('"')) ||
-    (value.startsWith("'") && value.endsWith("'"))
-  ) {
-    return value.slice(1, -1);
-  }
-  return value;
+	if (
+		(value.startsWith('"') && value.endsWith('"')) ||
+		(value.startsWith("'") && value.endsWith("'"))
+	) {
+		return value.slice(1, -1);
+	}
+	return value;
 }
 
 function parseFrontmatterListValue(rawValue: string): string[] {
-  const value = stripYamlQuotes(rawValue.trim());
-  if (!value) {
-    return [];
-  }
-  const inner = value.startsWith('[') && value.endsWith(']')
-    ? value.slice(1, -1)
-    : value;
-  return [...new Set(inner
-    .split(',')
-    .map((item) => stripYamlQuotes(item.trim()))
-    .filter(Boolean))];
+	const value = stripYamlQuotes(rawValue.trim());
+	if (!value) {
+		return [];
+	}
+	const inner =
+		value.startsWith("[") && value.endsWith("]") ? value.slice(1, -1) : value;
+	return [
+		...new Set(
+			inner
+				.split(",")
+				.map((item) => stripYamlQuotes(item.trim()))
+				.filter(Boolean),
+		),
+	];
+}
+
+function parseInstallOnValue(rawValue: unknown): string[] {
+	if (typeof rawValue === "string") {
+		return parseFrontmatterListValue(rawValue);
+	}
+	if (!Array.isArray(rawValue)) {
+		return [];
+	}
+	const values = rawValue
+		.filter((item): item is string => typeof item === "string")
+		.map((item) => stripYamlQuotes(item.trim()))
+		.filter(Boolean);
+	return [...new Set(values)];
+}
+
+function formatYamlError(message: string): string {
+	const [firstLine] = message.split("\n");
+	return (firstLine || message).trim();
 }
 
 function normalizeComparablePath(path: string): string {
-  try {
-    return realpathSync(path);
-  } catch {
-    return resolve(path);
-  }
+	try {
+		return realpathSync(path);
+	} catch {
+		return resolve(path);
+	}
+}
+
+function copyMaterializedNode(
+	sourcePath: string,
+	destinationPath: string,
+	directoryStack: Set<string>,
+): void {
+	const stats = lstatSync(sourcePath);
+	if (stats.isSymbolicLink()) {
+		const resolvedPath = realpathSync(sourcePath);
+		const resolvedStats = lstatSync(resolvedPath);
+		if (resolvedStats.isDirectory()) {
+			copyMaterializedDirectoryContents(
+				resolvedPath,
+				destinationPath,
+				directoryStack,
+			);
+			return;
+		}
+		copyMaterializedFile(resolvedPath, destinationPath);
+		return;
+	}
+
+	if (stats.isDirectory()) {
+		copyMaterializedDirectoryContents(
+			sourcePath,
+			destinationPath,
+			directoryStack,
+		);
+		return;
+	}
+
+	if (stats.isFile()) {
+		copyMaterializedFile(sourcePath, destinationPath);
+	}
+}
+
+function copyMaterializedDirectoryContents(
+	sourcePath: string,
+	destinationPath: string,
+	directoryStack: Set<string>,
+): void {
+	const canonicalPath = normalizeComparablePath(sourcePath);
+	if (directoryStack.has(canonicalPath)) {
+		return;
+	}
+
+	directoryStack.add(canonicalPath);
+	ensureDir(destinationPath);
+	for (const name of readdirSync(sourcePath).sort()) {
+		copyMaterializedNode(
+			join(sourcePath, name),
+			join(destinationPath, name),
+			directoryStack,
+		);
+	}
+	directoryStack.delete(canonicalPath);
+}
+
+function copyMaterializedFile(
+	sourcePath: string,
+	destinationPath: string,
+): void {
+	ensureDir(dirname(destinationPath));
+	copyFileSync(sourcePath, destinationPath);
+	chmodSync(destinationPath, statSync(sourcePath).mode);
+}
+
+function snapshotMaterializedTree(rootPath: string): Map<string, string> {
+	const snapshot = new Map<string, string>();
+	walkMaterializedTree(rootPath, "", snapshot, new Set<string>());
+	return snapshot;
+}
+
+function treeContainsSymlinks(rootPath: string): boolean {
+	return walkForSymlinkNodes(rootPath, new Set<string>());
+}
+
+function walkForSymlinkNodes(
+	currentPath: string,
+	directoryStack: Set<string>,
+): boolean {
+	const stats = lstatSync(currentPath);
+	if (stats.isSymbolicLink()) {
+		return true;
+	}
+	if (!stats.isDirectory()) {
+		return false;
+	}
+
+	const canonicalPath = normalizeComparablePath(currentPath);
+	if (directoryStack.has(canonicalPath)) {
+		return false;
+	}
+
+	directoryStack.add(canonicalPath);
+	try {
+		for (const name of readdirSync(currentPath).sort()) {
+			if (walkForSymlinkNodes(join(currentPath, name), directoryStack)) {
+				return true;
+			}
+		}
+		return false;
+	} finally {
+		directoryStack.delete(canonicalPath);
+	}
+}
+
+function walkMaterializedTree(
+	currentPath: string,
+	currentRelativePath: string,
+	snapshot: Map<string, string>,
+	directoryStack: Set<string>,
+): void {
+	const stats = lstatSync(currentPath);
+	if (stats.isSymbolicLink()) {
+		const resolvedPath = realpathSync(currentPath);
+		const resolvedStats = lstatSync(resolvedPath);
+		if (resolvedStats.isDirectory()) {
+			walkMaterializedDirectory(
+				resolvedPath,
+				currentRelativePath,
+				snapshot,
+				directoryStack,
+			);
+			return;
+		}
+		snapshot.set(
+			currentRelativePath,
+			`file:${hashBytes(readFileSync(resolvedPath))}`,
+		);
+		return;
+	}
+
+	if (stats.isDirectory()) {
+		walkMaterializedDirectory(
+			currentPath,
+			currentRelativePath,
+			snapshot,
+			directoryStack,
+		);
+		return;
+	}
+
+	if (stats.isFile()) {
+		snapshot.set(
+			currentRelativePath,
+			`file:${hashBytes(readFileSync(currentPath))}`,
+		);
+	}
+}
+
+function walkMaterializedDirectory(
+	directoryPath: string,
+	directoryRelativePath: string,
+	snapshot: Map<string, string>,
+	directoryStack: Set<string>,
+): void {
+	const canonicalPath = normalizeComparablePath(directoryPath);
+	if (directoryStack.has(canonicalPath)) {
+		return;
+	}
+
+	directoryStack.add(canonicalPath);
+	if (directoryRelativePath) {
+		snapshot.set(`${directoryRelativePath}/`, "dir");
+	}
+	for (const name of readdirSync(directoryPath).sort()) {
+		const childRelativePath = directoryRelativePath
+			? join(directoryRelativePath, name)
+			: name;
+		walkMaterializedTree(
+			join(directoryPath, name),
+			childRelativePath,
+			snapshot,
+			directoryStack,
+		);
+	}
+	directoryStack.delete(canonicalPath);
+}
+
+function hashBytes(content: Uint8Array): string {
+	return createHash("sha1").update(content).digest("hex");
 }

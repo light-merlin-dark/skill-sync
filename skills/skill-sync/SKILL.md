@@ -78,6 +78,7 @@ Bare `skill-sync` prints a high-signal landing/help view. Default human output i
 ## Safety Rules
 
 - Prefer `doctor` before `execute`.
+- `execute` applies all non-conflicting changes by default. Conflicting entries are skipped but still reported (exit code 3 signals remaining issues).
 - If `doctor` reports a `conflict` due to an existing *unmanaged* install (common case: a skill folder already exists in a harness root like `~/.hermes/skills/<skill>`), resolve by either:
   - removing the unmanaged directory/file and re-running `execute`, or
   - restoring via `skill-sync backup restore <backup-id>`.

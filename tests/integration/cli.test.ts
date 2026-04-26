@@ -167,7 +167,6 @@ test("execute can continue applying non-conflicting changes when conflicts exist
 		repoRoot,
 		[
 			"execute",
-			"--continue-on-conflict",
 			"--home",
 			homeDir,
 			"--projects-root",
@@ -622,7 +621,7 @@ test("doctor flags malformed skill metadata even when sync layout is otherwise f
 	expect(result.stdout.toString()).toContain("frontmatter");
 });
 
-test("execute is blocked when a source skill has invalid YAML frontmatter", () => {
+test("execute still applies changes when a source skill has invalid YAML frontmatter, exits non-zero", () => {
 	const repoRoot = "/Users/merlin/_dev/skill-sync";
 	const { homeDir, projectsRoot } = makeFakeProjectsRoot();
 	tempPaths.push(homeDir);
@@ -658,7 +657,7 @@ test("execute is blocked when a source skill has invalid YAML frontmatter", () =
 		{},
 	);
 	expect(executeResult.exitCode).toBe(3);
-	expect(existsSync(join(codexRoot, "dev-control"))).toBe(false);
+	expect(existsSync(join(codexRoot, "dev-control"))).toBe(true);
 });
 
 test("doctor surfaces recursive harness traversal hazards that root-only checks miss", () => {

@@ -67,7 +67,6 @@ type GlobalOptions = {
 	verbose?: boolean;
 	home?: string;
 	dryRun?: boolean;
-	continueOnConflict?: boolean;
 	projectsRoot?: string | string[];
 	harness?: string | string[];
 };
@@ -839,15 +838,6 @@ cli
 function runExecute(options: GlobalOptions): void {
 	const { runtime, plan, state } = planSync(options);
 	const hasPlanConflicts = hasConflicts(plan);
-	if (hasPlanConflicts && !options.continueOnConflict) {
-		print(
-			options.json
-				? (plan as unknown as JsonValue)
-				: renderPlan(plan, { verbose: true, includeOrphans: true }),
-			Boolean(options.json),
-		);
-		process.exit(3);
-	}
 	const nextState = applySyncPlan(plan, state, Boolean(options.dryRun));
 	if (!options.dryRun) {
 		saveState(runtime, nextState);
@@ -855,7 +845,7 @@ function runExecute(options: GlobalOptions): void {
 	print(
 		options.json
 			? (plan as unknown as JsonValue)
-			: renderPlan(plan, { verbose: options.verbose, includeOrphans: false }),
+			: renderPlan(plan, { verbose: options.verbose || hasPlanConflicts, includeOrphans: false }),
 		Boolean(options.json),
 	);
 	if (hasPlanConflicts) {
@@ -903,7 +893,7 @@ async function runStabilize(options: StabilizeOptions): Promise<void> {
 		const hasPlanConflicts = hasConflicts(plan);
 		let appliedSync = false;
 		let nextState = state;
-		if (applyChanges && (!hasPlanConflicts || options.continueOnConflict)) {
+		if (applyChanges) {
 			nextState = applySyncPlan(plan, state, false);
 			saveState(runtime, nextState);
 			appliedSync = true;
@@ -1084,10 +1074,6 @@ cli
 		"--fix-codex-config",
 		"Also repair invalid/stale codex skills.config entries when codex harness is selected",
 	)
-	.option(
-		"--continue-on-conflict",
-		"Apply non-conflicting changes and still exit non-zero if conflicts remain",
-	)
 	.option("--verbose", "Show detailed plan output")
 	.option("--projects-root <path>", "Override configured projects root")
 	.option("--harness <id>", "Filter to one or more harness ids")
@@ -1101,10 +1087,6 @@ cli
 	.command("execute", "Apply the desired managed install state")
 	.option("--json", "Output JSON")
 	.option("--dry-run", "Show changes without mutating")
-	.option(
-		"--continue-on-conflict",
-		"Apply non-conflicting changes and still exit non-zero if conflicts remain",
-	)
 	.option("--verbose", "Show detailed plan output")
 	.option("--projects-root <path>", "Override configured projects root")
 	.option("--harness <id>", "Filter to one or more harness ids")
@@ -1118,10 +1100,6 @@ cli
 	.command("sync", "Alias for execute")
 	.option("--json", "Output JSON")
 	.option("--dry-run", "Show changes without mutating")
-	.option(
-		"--continue-on-conflict",
-		"Apply non-conflicting changes and still exit non-zero if conflicts remain",
-	)
 	.option("--verbose", "Show detailed plan output")
 	.option("--projects-root <path>", "Override configured projects root")
 	.option("--harness <id>", "Filter to one or more harness ids")

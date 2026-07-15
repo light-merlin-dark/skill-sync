@@ -46,7 +46,7 @@ import type {
 	SourceDiagnostic,
 	SyncPlan,
 } from "./core/types";
-import { buildRuntimeContext } from "./core/utils";
+import { buildRuntimeContext, slugify } from "./core/utils";
 
 const cli = cac("skill-sync");
 const version = readCliVersion();
@@ -69,6 +69,7 @@ type GlobalOptions = {
 	dryRun?: boolean;
 	projectsRoot?: string | string[];
 	harness?: string | string[];
+	skill?: string | string[];
 };
 
 function normalizeList(value: string | string[] | undefined): string[] {
@@ -156,11 +157,111 @@ function resolveSelectedHarnesses(
 function resolveSyncPlanOptions(
 	harnesses: HarnessDefinition[],
 	options: GlobalOptions,
-): { codexVisibilityBridge: boolean; rawSelectedHarnessIds: string[] } {
+): {
+	codexVisibilityBridge: boolean;
+	rawSelectedHarnessIds: string[];
+	targeted: boolean;
+} {
 	const harnessIds = new Set(harnesses.map((harness) => harness.id));
 	return {
 		codexVisibilityBridge: harnessIds.has("codex") && harnessIds.has("agents"),
 		rawSelectedHarnessIds: normalizeList(options.harness),
+		targeted: requestedSkillSlugs(options).length > 0,
+	};
+}
+
+function requestedSkillSlugs(options: GlobalOptions): string[] {
+	return [...new Set(normalizeList(options.skill).map(slugify))];
+}
+
+function selectDiscoveredSkills(
+	skills: DiscoveredSkill[],
+	options: GlobalOptions,
+): DiscoveredSkill[] {
+	const requested = requestedSkillSlugs(options);
+	if (requested.length === 0) {
+		return skills;
+	}
+	const requestedSet = new Set(requested);
+	const selected = skills.filter((skill) =>
+		requestedSet.has(skill.canonicalSlug),
+	);
+	const found = new Set(selected.map((skill) => skill.canonicalSlug));
+	const missing = requested.filter((slug) => !found.has(slug));
+	if (missing.length > 0) {
+		throw new Error(
+			`No discovered skill matches --skill ${missing.join(", ")}. Run: skill-sync sources`,
+		);
+	}
+	return selected;
+}
+
+function filterPlanToSelectedSkills(
+	plan: SyncPlan,
+	selectedSkills: DiscoveredSkill[],
+	options: GlobalOptions,
+): SyncPlan {
+	const requested = requestedSkillSlugs(options);
+	if (requested.length === 0) {
+		return plan;
+	}
+	const requestedSet = new Set(requested);
+	const sourceKeys = new Set(selectedSkills.map((skill) => skill.sourceKey));
+	const sourcePaths = new Set(selectedSkills.map((skill) => skill.sourcePath));
+	const selectedInstallNames = new Set(requested);
+	for (const skill of selectedSkills) {
+		selectedInstallNames.add(skill.canonicalSlug);
+	}
+
+	const harnesses = plan.harnesses.map((harnessPlan) => {
+		const entries = harnessPlan.entries.filter((entry) => {
+			const selected =
+				Boolean(entry.sourceKey && sourceKeys.has(entry.sourceKey)) ||
+				Boolean(entry.sourcePath && sourcePaths.has(entry.sourcePath)) ||
+				selectedInstallNames.has(entry.installName);
+			if (selected) selectedInstallNames.add(entry.installName);
+			return selected;
+		});
+		return { ...harnessPlan, entries };
+	});
+
+	const entries = harnesses.flatMap((harness) => harness.entries);
+	const changes = entries.filter(
+		(entry) => entry.action !== "ok" && entry.action !== "conflict",
+	).length;
+	const conflicts = entries.filter((entry) => entry.action === "conflict").length;
+	const ok = entries.filter((entry) => entry.action === "ok").length;
+	const filterDiagnostics = <T extends { slug: string }>(items: T[]): T[] =>
+		items.filter((item) => requestedSet.has(item.slug));
+
+	return {
+		...plan,
+		harnesses,
+		changes,
+		conflicts,
+		ok,
+		sourceDiagnostics: {
+			warnings: filterDiagnostics(plan.sourceDiagnostics.warnings),
+			errors: filterDiagnostics(plan.sourceDiagnostics.errors),
+		},
+		harnessDiagnostics: plan.harnessDiagnostics.filter((diagnostic) =>
+			selectedInstallNames.has(diagnostic.entryName),
+		),
+		orphanSkills: plan.orphanSkills?.filter((orphan) =>
+			selectedInstallNames.has(orphan.installName),
+		),
+	};
+}
+
+function selectSourceDiagnostics(
+	diagnostics: SyncPlan["sourceDiagnostics"],
+	options: GlobalOptions,
+): SyncPlan["sourceDiagnostics"] {
+	const requested = new Set(requestedSkillSlugs(options));
+	if (requested.size === 0) return diagnostics;
+	return {
+		warnings: diagnostics.warnings.filter((item) => requested.has(item.slug)),
+		errors: diagnostics.errors.filter((item) => requested.has(item.slug)),
 	};
 }
 
@@ -643,18 +744,28 @@ function planSync(options: GlobalOptions): {
 		);
 		const allHarnesses = resolveHarnesses(runtime.homeDir, config);
 		const harnesses = resolveSelectedHarnesses(allHarnesses, options);
-		const { skills, sourceDiagnostics } = discoverSkillSet(
+		const { skills: allSkills, sourceDiagnostics } = discoverSkillSet(
 			config,
 			allHarnesses,
 		);
+		const skills = selectDiscoveredSkills(allSkills, options);
+		const selectedSourceDiagnostics = selectSourceDiagnostics(
+			sourceDiagnostics,
+			options,
+		);
 		const state = loadState(runtime);
-		const plan = buildSyncPlan(
+		const fullPlan = buildSyncPlan(
 			skills,
 			harnesses,
 			config,
 			state,
-			sourceDiagnostics,
+			selectedSourceDiagnostics,
 			resolveSyncPlanOptions(harnesses, options),
+		);
+		const plan = filterPlanToSelectedSkills(
+			fullPlan,
+			skills,
+			options,
 		);
 		return { runtime, plan, harnesses, skills, state };
 	});
@@ -705,6 +816,7 @@ cli
 	.option("--verbose", "Show detailed plan output")
 	.option("--projects-root <path>", "Override configured projects root")
 	.option("--harness <id>", "Filter to one or more harness ids")
+	.option("--skill <slug>", "Filter to one or more skill slugs")
 	.option(
 		"--home <path>",
 		"Override HOME for skill-sync state and harness resolution",
@@ -721,6 +833,7 @@ cli
 	.option("--verbose", "Show detailed plan output")
 	.option("--projects-root <path>", "Override configured projects root")
 	.option("--harness <id>", "Filter to one or more harness ids")
+	.option("--skill <slug>", "Filter to one or more skill slugs")
 	.option(
 		"--home <path>",
 		"Override HOME for skill-sync state and harness resolution",
@@ -1090,6 +1203,7 @@ cli
 	.option("--verbose", "Show detailed plan output")
 	.option("--projects-root <path>", "Override configured projects root")
 	.option("--harness <id>", "Filter to one or more harness ids")
+	.option("--skill <slug>", "Apply only one or more skill slugs")
 	.option(
 		"--home <path>",
 		"Override HOME for skill-sync state and harness resolution",
@@ -1103,6 +1217,7 @@ cli
 	.option("--verbose", "Show detailed plan output")
 	.option("--projects-root <path>", "Override configured projects root")
 	.option("--harness <id>", "Filter to one or more harness ids")
+	.option("--skill <slug>", "Apply only one or more skill slugs")
 	.option(
 		"--home <path>",
 		"Override HOME for skill-sync state and harness resolution",
@@ -1113,6 +1228,7 @@ cli
 	.command("sources", "List discovered source skills")
 	.option("--json", "Output JSON")
 	.option("--projects-root <path>", "Override configured projects root")
+	.option("--skill <slug>", "Filter to one or more skill slugs")
 	.option(
 		"--home <path>",
 		"Override HOME for skill-sync state and harness resolution",
@@ -1127,14 +1243,16 @@ cli
 			const harnesses = resolveHarnesses(runtime.homeDir, config).filter(
 				(harness) => harness.enabled,
 			);
-			const { skills, sourceDiagnostics } = discoverSkillSet(config, harnesses);
+			const { skills: allSkills, sourceDiagnostics } = discoverSkillSet(config, harnesses);
+			const skills = selectDiscoveredSkills(allSkills, options);
+			const selectedDiagnostics = selectSourceDiagnostics(sourceDiagnostics, options);
 			if (options.json) {
-				print({ skills, sourceDiagnostics } as unknown as JsonValue, true);
+				print({ skills, sourceDiagnostics: selectedDiagnostics } as unknown as JsonValue, true);
 				return;
 			}
 			console.log(`Discovered ${skills.length} skill source(s)`);
 			const sourceLines: string[] = [];
-			appendSourceDiagnostics(sourceLines, sourceDiagnostics);
+			appendSourceDiagnostics(sourceLines, selectedDiagnostics);
 			if (sourceLines.length > 0) {
 				console.log(sourceLines.join("\n"));
 				console.log("");

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.3.7 (2026-07-15)
+
+- Add built-in **Grok** harness (`~/.grok/skills`, aliases: `grok-build`, `grok-tui`, `xai-grok`) so Grok Build TUI sessions receive the same managed skill fan-out as Claude/Codex/Cursor.
+- Add `--skill <slug>` targeting to `doctor`, `check`, `execute`, `sync`, and `sources`, allowing project release workflows to sync one skill without planning, pruning, or inheriting conflicts from unrelated skills.
+- Treat divergent harness-native skills with pairwise-disjoint local install scopes as valid independent sources instead of blocking global duplicate-slug errors.
+
 ## 0.3.6 (2026-04-10)
 - Switch Codex installs from `SKILL.md` wrapper symlinks to full materialized skill directories so repo-backed `_dev` skills are discoverable in Codex IDE without depending on symlinked `SKILL.md` support
 - Materialize `~/.agents/skills` installs whenever Codex is selected, and route shared Codex-visible skills through that bridge instead of duplicating them under both `~/.agents/skills` and `~/.codex/skills`

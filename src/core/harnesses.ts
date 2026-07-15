@@ -31,6 +31,12 @@ const BUILT_IN_HARNESSES: BuiltInHarness[] = [
 		label: "GitHub Copilot",
 		rootPaths: ["~/.copilot/skills"],
 	},
+	{
+		id: "grok",
+		label: "Grok",
+		rootPaths: ["~/.grok/skills"],
+		aliases: ["grok-build", "grok-tui", "xai-grok"],
+	},
 	{ id: "hermes", label: "Hermes", rootPaths: ["~/.hermes/skills"] },
 	{ id: "kilocode", label: "KiloCode", rootPaths: ["~/.kilocode/skills"] },
 	{

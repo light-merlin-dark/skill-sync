@@ -377,6 +377,20 @@ function resolveGlobalDuplicates(
 			}
 			continue;
 		}
+		if (
+			projectBacked.length === 0 &&
+			havePairwiseDisjointInstallScopes(preferredGroup)
+		) {
+			// Harness-native skills are local-only by default. Two tools may own
+			// different implementations under the same slug without competing for
+			// any destination, so retain both instead of raising a global error.
+			resolved.push(
+				...[...preferredGroup].sort((a, b) =>
+					compareDiscoveredSkills(a, b, preferPrefixes),
+				),
+			);
+			continue;
+		}
 		const distinctHashes = new Set(
 			preferredGroup.map((skill) => skill.contentHash),
 		);
@@ -456,6 +470,24 @@ function resolveGlobalDuplicates(
 			errors: errors.sort(compareDiagnostics),
 		},
 	};
+}
+
+function havePairwiseDisjointInstallScopes(
+	skills: DiscoveredSkill[],
+): boolean {
+	const claimedHarnesses = new Set<string>();
+	for (const skill of skills) {
+		if (!skill.installHarnessIds || skill.installHarnessIds.length === 0) {
+			return false;
+		}
+		for (const harnessId of skill.installHarnessIds) {
+			if (claimedHarnesses.has(harnessId)) {
+				return false;
+			}
+			claimedHarnesses.add(harnessId);
+		}
+	}
+	return true;
 }
 
 function getDiscoveryConfig(config: Config): Config["discovery"] {

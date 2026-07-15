@@ -406,6 +406,58 @@ test("treats harness-root sources as local-only by default", () => {
 	expect(describeSkill(vendorOnly)).toContain("[local-only: codex]");
 });
 
+test("allows divergent harness-local skills with disjoint install scopes", () => {
+	const { homeDir, projectsRoot } = makeFakeProjectsRoot();
+	tempPaths.push(homeDir);
+
+	const opencodeRoot = makeHarnessRoot(homeDir, ".config/opencode/skills");
+	const kimiRoot = makeHarnessRoot(homeDir, ".kimi/skills");
+	makeTopLevelSkill(opencodeRoot, "logo-pipeline", "logo-pipeline");
+	const kimiSkill = makeTopLevelSkill(kimiRoot, "logo-pipeline", "logo-pipeline");
+	writeText(
+		`${kimiSkill}/SKILL.md`,
+		"---\nname: logo-pipeline\ndescription: Kimi-specific implementation\n---\n\n# Kimi Logo Pipeline\n",
+	);
+
+	const harnesses: HarnessDefinition[] = [
+		{
+			id: "opencode",
+			label: "OpenCode",
+			rootPath: opencodeRoot,
+			kind: "built-in",
+			detected: true,
+			enabled: true,
+		},
+		{
+			id: "kimi",
+			label: "Kimi",
+			rootPath: kimiRoot,
+			kind: "custom",
+			detected: true,
+			enabled: true,
+		},
+	];
+
+	const { skills, sourceDiagnostics } = discoverSkillSet(
+		makeConfig(projectsRoot),
+		harnesses,
+	);
+	const logoSkills = skills.filter(
+		(skill) => skill.canonicalSlug === "logo-pipeline",
+	);
+	expect(logoSkills).toHaveLength(2);
+	expect(
+		logoSkills
+			.flatMap((skill) => skill.installHarnessIds || [])
+			.sort(),
+	).toEqual(["kimi", "opencode"]);
+	expect(
+		sourceDiagnostics.errors.some(
+			(error) => error.slug === "logo-pipeline",
+		),
+	).toBe(false);
+});
+
 test("keeps shared agents-root skills global by default", () => {
 	const { homeDir, projectsRoot } = makeFakeProjectsRoot();
 	tempPaths.push(homeDir);

@@ -6,7 +6,7 @@
 ███████║██║  ██╗██║███████╗███████╗    ███████║   ██║   ██║ ╚████║╚██████╗
 ╚══════╝╚═╝  ╚═╝╚═╝╚══════╝╚══════╝    ╚══════╝   ╚═╝   ╚═╝  ╚═══╝ ╚═════╝
 
-Sync local repo-backed agent skills across Codex, Claude Code, Cursor, Gemini, Hermes, and more.
+Sync local repo-backed agent skills across Codex, Claude Code, Cursor, Gemini, Hermes, Grok, and more.
 ```
 
 `skill-sync` keeps local `SKILL.md` sources installed into agent harnesses using harness-native managed layouts, with drift checks, source-topology diagnostics, conflict detection, and restoreable backups. Most harnesses use thin wrapper directories with a canonical `SKILL.md` symlink; Codex now uses a materialized skill-directory install for Codex-local skills, and shared Codex-visible skills are routed through materialized `~/.agents/skills` bridge entries to avoid duplicate listings in the IDE.
@@ -83,6 +83,8 @@ skill-sync execute
 skill-sync sync
 # Apply safe changes even if some entries conflict (still exits non-zero)
 skill-sync execute --continue-on-conflict
+# Fast, isolated project release path: never prunes unrelated managed entries
+skill-sync execute --skill email-cli
 ```
 
 Shortcut:
@@ -154,6 +156,8 @@ skill-sync repair-sources --dry-run --json
 skill-sync cache-bust --harness codex --dry-run --json
 skill-sync backup restore <id> --dry-run
 skill-sync doctor --projects-root /path/to/projects --harness codex
+skill-sync doctor --skill email-cli --json
+skill-sync execute --skill email-cli --json
 skill-sync doctor --home /tmp/fake-home
 ```
 
@@ -191,6 +195,10 @@ skill-sync harness add codex-beta ~/.codex-beta/skills
 - `clean` scans selected harness roots directly (not only state-tracked entries) and removes top-level directory symlinks that pollute parsers
 - unmanaged conflicts are reported, not overwritten
 - duplicate `_dev` slugs are surfaced before harness-level sync planning
+- harness-local implementations with the same slug and disjoint destination
+  scopes coexist; they are not global conflicts
+- `--skill <slug>` scopes planning and mutation to that skill, preserves all
+  unrelated managed state, and filters unrelated source/traversal diagnostics
 - malformed skill metadata is surfaced during `doctor`, including missing YAML frontmatter or missing `name:`
 - invalid YAML frontmatter is a blocking source error (exit code `3`) so `execute` cannot report healthy while Codex/OpenCode parsing would still fail
 - broken nested `skills/<slug>/SKILL.md` symlinks are surfaced as source errors so sync does not silently drop missing skills

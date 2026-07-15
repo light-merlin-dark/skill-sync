@@ -37,6 +37,8 @@ const MATERIALIZED_DIRECTORY_INSTALL_HARNESSES = new Set<string>(["codex"]);
 type SyncPlanOptions = {
 	codexVisibilityBridge?: boolean;
 	rawSelectedHarnessIds?: string[];
+	/** Scoped plans must never prune or clean entries outside the selected skills. */
+	targeted?: boolean;
 };
 
 export function buildSyncPlan(
@@ -108,7 +110,9 @@ export function buildSyncPlan(
 			}
 		}
 
-		for (const [entryPath, managed] of Object.entries(state.managedEntries)) {
+		for (const [entryPath, managed] of options.targeted
+			? []
+			: Object.entries(state.managedEntries)) {
 			if (managed.harnessId !== harnessPlan.harness.id) {
 				continue;
 			}
@@ -131,7 +135,7 @@ export function buildSyncPlan(
 			changes += 1;
 		}
 
-		if (harnessPlan.harness.detected) {
+		if (!options.targeted && harnessPlan.harness.detected) {
 			let children: string[] = [];
 			try {
 				children = readdirSync(harnessPlan.harness.rootPath);
@@ -190,7 +194,7 @@ export function buildSyncPlan(
 	// Orphan reporting: skills that exist inside harness roots (have a SKILL.md)
 	// but are neither part of the desired/discovered set nor tracked in state.managedEntries.
 	const orphanSkills: OrphanSkill[] = [];
-	for (const harnessPlan of harnessPlans) {
+	for (const harnessPlan of options.targeted ? [] : harnessPlans) {
 		const desiredSet =
 			desiredByHarness.get(harnessPlan.harness.id) || new Set<string>();
 		let children: string[] = [];

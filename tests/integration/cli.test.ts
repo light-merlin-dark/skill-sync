@@ -259,6 +259,50 @@ test("surfaces source duplicate diagnostics before harness sync", () => {
 	expect(parsed.sourceDiagnostics.errors[0]?.slug).toBe("agent-browser");
 });
 
+test("targeted execute ignores unrelated source conflicts and preserves other managed skills", () => {
+	const repoRoot = "/Users/merlin/_dev/skill-sync";
+	const { homeDir, projectsRoot } = makeFakeProjectsRoot();
+	tempPaths.push(homeDir);
+
+	const codexRoot = makeHarnessRoot(homeDir, ".codex/skills");
+	makeNestedSkill(projectsRoot, "email", "email-cli", "email-cli");
+	makeNestedSkill(projectsRoot, "other", "other", "other");
+	makeNestedSkill(projectsRoot, "prod-control", "prod", "prod");
+	const duplicateProd = makeNestedSkill(
+		projectsRoot,
+		"prod-server",
+		"prod",
+		"prod",
+	);
+	writeText(
+		join(duplicateProd, "SKILL.md"),
+		"---\nname: prod\ndescription: Divergent legacy prod\n---\n\n# Legacy Prod\n",
+	);
+
+	const baseArgs = ["--home", homeDir, "--projects-root", projectsRoot];
+	const first = runCli(
+		repoRoot,
+		["execute", "--skill", "other", ...baseArgs],
+		{},
+	);
+	expect(first.exitCode).toBe(0);
+	expect(existsSync(join(codexRoot, "other", "SKILL.md"))).toBe(true);
+	expect(existsSync(join(codexRoot, "prod"))).toBe(false);
+
+	const targeted = runCli(
+		repoRoot,
+		["execute", "--skill", "email-cli", ...baseArgs, "--json"],
+		{},
+	);
+	expect(targeted.exitCode).toBe(0);
+	const parsed = JSON.parse(targeted.stdout.toString());
+	expect(parsed.sourceDiagnostics.errors).toEqual([]);
+	expect(parsed.harnesses.flatMap((harness: { entries: unknown[] }) => harness.entries)).toHaveLength(1);
+	expect(existsSync(join(codexRoot, "email-cli", "SKILL.md"))).toBe(true);
+	expect(existsSync(join(codexRoot, "other", "SKILL.md"))).toBe(true);
+	expect(existsSync(join(codexRoot, "prod"))).toBe(false);
+});
+
 test("backup create tolerates symlink loops inside a skill source", () => {
 	const repoRoot = "/Users/merlin/_dev/skill-sync";
 	const { homeDir, projectsRoot } = makeFakeProjectsRoot();

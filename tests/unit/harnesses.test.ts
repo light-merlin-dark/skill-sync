@@ -34,6 +34,17 @@ test("detects opencode and kilocode built-in harness roots", () => {
 	);
 });
 
+test("detects grok built-in harness root", () => {
+	const { homeDir } = makeFakeProjectsRoot();
+	makeHarnessRoot(homeDir, ".grok/skills");
+
+	const harnesses = resolveHarnesses(homeDir, makeConfig());
+	const grok = harnesses.find((harness) => harness.id === "grok");
+	expect(grok?.detected).toBe(true);
+	expect(grok?.rootPath).toBe(`${homeDir}/.grok/skills`);
+	expect(grok?.aliases).toContain("grok-build");
+});
+
 test("prefers the XDG opencode skills root over the legacy dotdir when both exist", () => {
 	const { homeDir } = makeFakeProjectsRoot();
 	makeHarnessRoot(homeDir, ".config/opencode/skills");

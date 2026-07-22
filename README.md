@@ -347,10 +347,20 @@ You can also exclude or prefer project paths during discovery:
     ],
     "preferPathPrefixes": [
       "/Users/you/_dev/packages/stack"
-    ]
+    ],
+    "preferPrimaryWorktree": true
   }
 }
 ```
+
+`preferPrimaryWorktree` (default `true`) makes discovery ignore a skill copy that
+lives inside a **linked git worktree** whenever that worktree's primary checkout
+provides the same slug. Without it, a feature-branch worktree under your projects
+root (e.g. `git worktree add ../my-tool-feature`) shows up as a duplicate source
+and — if its skill content has drifted from the primary — blocks sync with an
+unresolved duplicate-slug error. Worktree-only skills (whose primary is not under
+any projects root) are always kept. Set it to `false` to treat every worktree
+copy as an independent source.
 
 ## Local Development
 

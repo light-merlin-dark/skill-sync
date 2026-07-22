@@ -16,6 +16,7 @@ function getDefaultConfig(homeDir: string): Config {
 			ignorePathPrefixes: [],
 			preferPathPrefixes: [],
 			includeHarnessRoots: true,
+			preferPrimaryWorktree: true,
 		},
 		harnesses: {
 			custom: [],
@@ -50,6 +51,7 @@ export function loadConfig(runtime: RuntimeContext): Config {
 				(path) => expandHomePath(path, runtime.homeDir),
 			),
 			includeHarnessRoots: config.discovery?.includeHarnessRoots !== false,
+			preferPrimaryWorktree: config.discovery?.preferPrimaryWorktree !== false,
 		},
 		harnesses: {
 			custom: config.harnesses?.custom || [],

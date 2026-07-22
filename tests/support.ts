@@ -75,6 +75,33 @@ export function linkPath(path: string, target: string): void {
 	symlinkSync(target, path);
 }
 
+// Give a repo a ".git" *directory*, marking it as a primary git checkout.
+export function markAsGitRepo(repoPath: string): void {
+	mkdirSync(join(repoPath, ".git"), { recursive: true });
+}
+
+// Create a nested skill inside a directory that emulates a linked git worktree:
+// its ".git" is a *file* pointing at "<primaryRepoPath>/.git/worktrees/<name>",
+// exactly as `git worktree add` records it.
+export function makeLinkedWorktreeSkill(
+	projectsRoot: string,
+	worktreeRepoName: string,
+	nestedName: string,
+	primaryRepoPath: string,
+	skillName?: string,
+): string {
+	const repoPath = join(projectsRoot, worktreeRepoName);
+	const nestedPath = join(repoPath, "skills", nestedName);
+	mkdirSync(nestedPath, { recursive: true });
+	makeSkillFile(join(nestedPath, "SKILL.md"), skillName);
+	writeFileSync(
+		join(repoPath, ".git"),
+		`gitdir: ${primaryRepoPath}/.git/worktrees/${worktreeRepoName}\n`,
+		"utf8",
+	);
+	return nestedPath;
+}
+
 export function readSkillFile(path: string): string {
 	return readFileSync(path, "utf8");
 }

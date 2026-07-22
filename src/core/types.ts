@@ -5,6 +5,10 @@ export type Config = {
 		ignorePathPrefixes: string[];
 		preferPathPrefixes: string[];
 		includeHarnessRoots: boolean;
+		// When true (default), a skill copy found inside a linked git worktree is
+		// dropped if that worktree's primary repo provides the same slug, so the
+		// primary checkout always wins instead of colliding as a duplicate.
+		preferPrimaryWorktree: boolean;
 	};
 	harnesses: {
 		custom: CustomHarnessConfig[];
@@ -74,6 +78,10 @@ export type DiscoveredSkill = {
 	installHarnessIds?: string[];
 	canonicalSlug: string;
 	contentHash: string;
+	// Set to the normalized primary-repo working-tree path when this source lives
+	// inside a linked git worktree; undefined for primary checkouts and non-git
+	// sources. Used to prefer the primary checkout over worktree copies.
+	worktreePrimaryRepoPath?: string;
 };
 
 export type SourceDiagnostic = {

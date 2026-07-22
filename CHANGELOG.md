@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Prefer the primary git checkout over linked worktrees during discovery: a skill copy inside a linked worktree is dropped when that worktree's primary repo provides the same slug, so feature-branch worktrees under a projects root no longer collide with (or, when drifted, block sync against) the primary source. Worktree-only skills are retained. Controlled by `discovery.preferPrimaryWorktree` (default `true`).
+
 ## 0.3.7 (2026-07-15)
 
 - Add built-in **Grok** harness (`~/.grok/skills`, aliases: `grok-build`, `grok-tui`, `xai-grok`) so Grok Build TUI sessions receive the same managed skill fan-out as Claude/Codex/Cursor.

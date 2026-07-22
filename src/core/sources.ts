@@ -5,6 +5,7 @@ import {
 	readFileSync,
 	readlinkSync,
 	realpathSync,
+	statSync,
 	writeFileSync,
 } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
@@ -131,8 +132,12 @@ export function discoverSkillSet(
 		discovered.push(...discoverHarnessSkills(harnesses));
 	}
 
-	const filtered = discovered.filter(
-		(skill) => !isIgnoredSource(skill.sourcePath, discovery.ignorePathPrefixes),
+	const filtered = dropRedundantWorktreeSources(
+		discovered.filter(
+			(skill) =>
+				!isIgnoredSource(skill.sourcePath, discovery.ignorePathPrefixes),
+		),
+		discovery.preferPrimaryWorktree,
 	);
 	const deduped = new Map<string, DiscoveredSkill>();
 	for (const skill of filtered) {
@@ -302,6 +307,7 @@ function buildDiscoveredSkill(
 		),
 		canonicalSlug,
 		contentHash,
+		worktreePrimaryRepoPath: detectWorktreePrimaryRepo(normalizedRepoPath),
 	};
 }
 
@@ -495,6 +501,7 @@ function getDiscoveryConfig(config: Config): Config["discovery"] {
 		ignorePathPrefixes: config.discovery?.ignorePathPrefixes ?? [],
 		preferPathPrefixes: config.discovery?.preferPathPrefixes ?? [],
 		includeHarnessRoots: config.discovery?.includeHarnessRoots !== false,
+		preferPrimaryWorktree: config.discovery?.preferPrimaryWorktree !== false,
 	};
 }
 
@@ -761,6 +768,92 @@ function normalizeExistingPath(path: string): string {
 	} catch {
 		return resolve(path);
 	}
+}
+
+// A linked git worktree records its git data via a ".git" *file* (not directory)
+// containing "gitdir: <primary>/.git/worktrees/<name>". The primary checkout has
+// a ".git" *directory*. Walking up from a repo path to the first ".git" entry and
+// inspecting its kind tells us whether a source lives in a linked worktree, and
+// the gitdir target reveals the primary working tree so we can pair the two.
+function detectWorktreePrimaryRepo(startPath: string): string | undefined {
+	let current = startPath;
+	// biome-ignore lint/nursery/noConstantCondition: bounded by parent === current
+	while (true) {
+		const gitPath = join(current, ".git");
+		let kind: "dir" | "file" | undefined;
+		try {
+			const stat = statSync(gitPath);
+			kind = stat.isDirectory() ? "dir" : stat.isFile() ? "file" : undefined;
+		} catch {
+			kind = undefined;
+		}
+		if (kind === "dir") {
+			return undefined; // primary (or bare) checkout — not a linked worktree
+		}
+		if (kind === "file") {
+			return parseWorktreeGitdir(gitPath);
+		}
+		const parent = dirname(current);
+		if (parent === current) {
+			return undefined; // reached filesystem root without a .git entry
+		}
+		current = parent;
+	}
+}
+
+function parseWorktreeGitdir(gitFilePath: string): string | undefined {
+	let content: string;
+	try {
+		content = readFileSync(gitFilePath, "utf8");
+	} catch {
+		return undefined;
+	}
+	const match = content.match(/^gitdir:\s*(.+)$/m);
+	if (!match) {
+		return undefined;
+	}
+	let gitdir = match[1].trim();
+	if (!gitdir.startsWith("/")) {
+		// Rare, but a gitdir may be recorded relative to the .git file's directory.
+		gitdir = resolve(dirname(gitFilePath), gitdir);
+	}
+	const marker = "/.git/worktrees/";
+	const idx = gitdir.indexOf(marker);
+	if (idx === -1) {
+		return undefined; // not a linked-worktree pointer
+	}
+	return normalizeExistingPath(gitdir.slice(0, idx));
+}
+
+// Drop skill copies that live inside a linked git worktree when that worktree's
+// own primary checkout provides the same slug. This keeps a feature-branch
+// checkout under the projects root from colliding with (or clobbering) the
+// primary source. Worktree-only skills — whose primary is absent from discovery —
+// are always retained so nothing is lost.
+function dropRedundantWorktreeSources(
+	skills: DiscoveredSkill[],
+	enabled: boolean,
+): DiscoveredSkill[] {
+	if (!enabled) {
+		return skills;
+	}
+	const primaryRepoPathsBySlug = new Map<string, Set<string>>();
+	for (const skill of skills) {
+		if (skill.worktreePrimaryRepoPath) {
+			continue; // only non-worktree sources establish a "primary present" claim
+		}
+		const set =
+			primaryRepoPathsBySlug.get(skill.canonicalSlug) ?? new Set<string>();
+		set.add(skill.repoPath);
+		primaryRepoPathsBySlug.set(skill.canonicalSlug, set);
+	}
+	return skills.filter((skill) => {
+		if (!skill.worktreePrimaryRepoPath) {
+			return true;
+		}
+		const primaries = primaryRepoPathsBySlug.get(skill.canonicalSlug);
+		return !primaries?.has(skill.worktreePrimaryRepoPath);
+	});
 }
 
 function dedupeEquivalentSources(skills: DiscoveredSkill[]): DiscoveredSkill[] {

@@ -11,11 +11,14 @@ import {
 	linkPath,
 	makeFakeProjectsRoot,
 	makeHarnessRoot,
+	makeLinkedWorktreeSkill,
 	makeNestedSkill,
 	makeTopLevelSkill,
+	markAsGitRepo,
 	readSkillFile,
 	writeText,
 } from "../support";
+import { join } from "node:path";
 
 function makeConfig(projectsRoot: string): Config {
 	return {
@@ -25,6 +28,7 @@ function makeConfig(projectsRoot: string): Config {
 			ignorePathPrefixes: [],
 			preferPathPrefixes: [],
 			includeHarnessRoots: true,
+			preferPrimaryWorktree: true,
 		},
 		harnesses: { custom: [] },
 		aliases: {},
@@ -131,6 +135,95 @@ test("collapses identical duplicate skills across repos to one canonical source"
 	expect(sourceDiagnostics.warnings[0]?.chosenSourcePath).toContain(
 		"/agent-browser-src/",
 	);
+});
+
+test("drops a linked-worktree copy when the primary checkout provides the same slug", () => {
+	const { homeDir, projectsRoot } = makeFakeProjectsRoot();
+	tempPaths.push(homeDir);
+	const primaryRepo = join(projectsRoot, "email-cli");
+	const primaryNested = makeNestedSkill(
+		projectsRoot,
+		"email-cli",
+		"email-cli",
+		"email-cli",
+	);
+	markAsGitRepo(primaryRepo);
+	// Stale feature-branch checkout with DIVERGENT content — the exact scenario
+	// that used to raise a blocking unresolved-duplicate error.
+	const worktreeNested = makeLinkedWorktreeSkill(
+		projectsRoot,
+		"email-cli-signature",
+		"email-cli",
+		primaryRepo,
+		"email-cli",
+	);
+	writeText(
+		join(worktreeNested, "SKILL.md"),
+		"---\nname: email-cli\ndescription: stale worktree copy\n---\n\n# Old\n",
+	);
+
+	const { skills, sourceDiagnostics } = discoverSkillSet(
+		makeConfig(projectsRoot),
+	);
+	const emailSkills = skills.filter(
+		(skill) => skill.canonicalSlug === "email-cli",
+	);
+	expect(emailSkills).toHaveLength(1);
+	expect(emailSkills[0]?.sourcePath).toContain("/email-cli/skills/email-cli");
+	expect(emailSkills[0]?.sourcePath).not.toContain("email-cli-signature");
+	expect(primaryNested.endsWith("/email-cli/skills/email-cli")).toBe(true);
+	// The worktree copy is not a competing source at all: no error, no warning.
+	expect(
+		sourceDiagnostics.errors.filter((d) => d.slug === "email-cli"),
+	).toHaveLength(0);
+	expect(
+		sourceDiagnostics.warnings.filter(
+			(d) => d.kind === "duplicate-slug" && d.slug === "email-cli",
+		),
+	).toHaveLength(0);
+});
+
+test("keeps a linked-worktree skill when its primary checkout is absent", () => {
+	const { homeDir, projectsRoot } = makeFakeProjectsRoot();
+	tempPaths.push(homeDir);
+	// Primary lives outside the projects root, so it is never discovered.
+	const primaryOutside = join(homeDir, "elsewhere", "solo-tool");
+	makeLinkedWorktreeSkill(
+		projectsRoot,
+		"solo-tool-wt",
+		"solo-tool",
+		primaryOutside,
+		"solo-tool",
+	);
+
+	const { skills } = discoverSkillSet(makeConfig(projectsRoot));
+	expect(skills.map((skill) => skill.canonicalSlug)).toContain("solo-tool");
+});
+
+test("preferPrimaryWorktree=false retains worktree copies as duplicates", () => {
+	const { homeDir, projectsRoot } = makeFakeProjectsRoot();
+	tempPaths.push(homeDir);
+	const primaryRepo = join(projectsRoot, "email-cli");
+	makeNestedSkill(projectsRoot, "email-cli", "email-cli", "email-cli");
+	markAsGitRepo(primaryRepo);
+	makeLinkedWorktreeSkill(
+		projectsRoot,
+		"email-cli-signature",
+		"email-cli",
+		primaryRepo,
+		"email-cli",
+	);
+
+	const config = makeConfig(projectsRoot);
+	config.discovery.preferPrimaryWorktree = false;
+	const { sourceDiagnostics } = discoverSkillSet(config);
+	// With the guard off, both identical copies survive to global dedup and
+	// collapse with a duplicate-slug warning instead of being dropped up front.
+	expect(
+		sourceDiagnostics.warnings.filter(
+			(d) => d.kind === "duplicate-slug" && d.slug === "email-cli",
+		),
+	).toHaveLength(1);
 });
 
 test("reports unresolved duplicate skills as source errors", () => {

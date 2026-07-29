@@ -583,6 +583,37 @@ test("keeps shared agents-root skills global by default", () => {
 	expect(describeSkill(sharedSkill)).not.toContain("local-only");
 });
 
+test("does not warn when a harness mirror exactly matches the project source", () => {
+	const { homeDir, projectsRoot } = makeFakeProjectsRoot();
+	tempPaths.push(homeDir);
+
+	const projectSkill = makeNestedSkill(projectsRoot, "invoice", "invoice", "invoice");
+	const agentsRoot = makeHarnessRoot(homeDir, ".agents/skills");
+	const mirror = makeTopLevelSkill(agentsRoot, "invoice", "invoice");
+	writeText(`${mirror}/SKILL.md`, readSkillFile(`${projectSkill}/SKILL.md`));
+
+	const harnesses: HarnessDefinition[] = [
+		{
+			id: "agents",
+			label: "Agents",
+			rootPath: agentsRoot,
+			kind: "built-in",
+			detected: true,
+			enabled: true,
+		},
+	];
+	const { sourceDiagnostics } = discoverSkillSet(
+		makeConfig(projectsRoot),
+		harnesses,
+	);
+
+	expect(
+		sourceDiagnostics.warnings.some(
+			(warning) => warning.kind === "duplicate-slug" && warning.slug === "invoice",
+		),
+	).toBe(false);
+});
+
 test("reports malformed or missing frontmatter as source warnings", () => {
 	const { homeDir, projectsRoot } = makeFakeProjectsRoot();
 	tempPaths.push(homeDir);

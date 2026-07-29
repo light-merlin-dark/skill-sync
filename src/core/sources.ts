@@ -360,7 +360,13 @@ function resolveGlobalDuplicates(
 				continue;
 			}
 			resolved.push(preferredSkill);
-			if (uniqueGroup.length > preferredGroup.length) {
+			const hasMeaningfulDuplicate = uniqueGroup.some(
+				(skill) =>
+					skill !== preferredSkill &&
+					(skill.sourceType !== "harness-root" ||
+						skill.contentHash !== preferredSkill.contentHash),
+			);
+			if (uniqueGroup.length > preferredGroup.length && hasMeaningfulDuplicate) {
 				warnings.push({
 					kind: "duplicate-slug",
 					slug: uniqueSkill.canonicalSlug,

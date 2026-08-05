@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add built-in **Kimi Code** harness (`~/.kimi-code/skills`) so Kimi Code sessions receive the same managed skill fan-out as other harnesses; previously the root was unmanaged, letting stale real-file copies (e.g. `dev`, `prod`) drift from their canonical `_dev` sources.
+- Tolerate broken symlinks inside materialized skill sources: copy and snapshot walkers now skip a dangling link instead of aborting the entire sync with `ENOENT`.
 - Prefer the primary git checkout over linked worktrees during discovery: a skill copy inside a linked worktree is dropped when that worktree's primary repo provides the same slug, so feature-branch worktrees under a projects root no longer collide with (or, when drifted, block sync against) the primary source. Worktree-only skills are retained. Controlled by `discovery.preferPrimaryWorktree` (default `true`).
 
 ## 0.3.7 (2026-07-15)

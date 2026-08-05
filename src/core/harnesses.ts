@@ -39,6 +39,7 @@ const BUILT_IN_HARNESSES: BuiltInHarness[] = [
 	},
 	{ id: "hermes", label: "Hermes", rootPaths: ["~/.hermes/skills"] },
 	{ id: "kilocode", label: "KiloCode", rootPaths: ["~/.kilocode/skills"] },
+	{ id: "kimi-code", label: "Kimi Code", rootPaths: ["~/.kimi-code/skills"] },
 	{
 		id: "opencode",
 		label: "OpenCode",

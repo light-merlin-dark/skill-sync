@@ -341,7 +341,13 @@ function copyMaterializedNode(
 ): void {
 	const stats = lstatSync(sourcePath);
 	if (stats.isSymbolicLink()) {
-		const resolvedPath = realpathSync(sourcePath);
+		let resolvedPath: string;
+		try {
+			resolvedPath = realpathSync(sourcePath);
+		} catch {
+			// Broken symlink: nothing to copy; skip it rather than aborting the run.
+			return;
+		}
 		const resolvedStats = lstatSync(resolvedPath);
 		if (resolvedStats.isDirectory()) {
 			copyMaterializedDirectoryContents(
@@ -448,7 +454,13 @@ function walkMaterializedTree(
 ): void {
 	const stats = lstatSync(currentPath);
 	if (stats.isSymbolicLink()) {
-		const resolvedPath = realpathSync(currentPath);
+		let resolvedPath: string;
+		try {
+			resolvedPath = realpathSync(currentPath);
+		} catch {
+			// Broken symlink: excluded from the snapshot, matching the copy side.
+			return;
+		}
 		const resolvedStats = lstatSync(resolvedPath);
 		if (resolvedStats.isDirectory()) {
 			walkMaterializedDirectory(

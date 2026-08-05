@@ -179,6 +179,7 @@ Built-in harness roots currently include:
 | Droid / Factory | `~/.factory/skills` |
 | Hermes | `~/.hermes/skills` |
 | KiloCode | `~/.kilocode/skills` |
+| Kimi Code | `~/.kimi-code/skills` |
 | OpenCode | `~/.config/opencode/skills` |
 | Plain skills root | `~/.skills` |
 

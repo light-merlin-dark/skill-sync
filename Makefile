@@ -18,7 +18,7 @@ help:
 	@echo "  make release           - Auto-bump patch, finalize changelog, lint/test/build, publish, commit, tag, push, and create/update GitHub release"
 
 install:
-	bun install
+	npm install
 
 build:
 	bun run build

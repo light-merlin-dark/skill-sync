@@ -11,7 +11,7 @@ Requirements:
 - Bun for development and tests.
 
 ```bash
-bun install --frozen-lockfile
+npm ci
 npm run lint
 npm test
 npm run build

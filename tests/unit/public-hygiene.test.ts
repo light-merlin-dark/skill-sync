@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
@@ -18,6 +18,7 @@ describe("public repository hygiene", () => {
 	test("keeps machine-local guidance and inventories out of git", () => {
 		const tracked = trackedFiles();
 		expect(tracked).not.toContain("AGENTS.md");
+		expect(tracked).not.toContain("docs/issue.md");
 		expect(tracked).not.toContain("docs/plan.md");
 		expect(tracked.some((file) => file.startsWith("inventory/"))).toBe(false);
 	});
@@ -31,6 +32,7 @@ describe("public repository hygiene", () => {
 				"--objects",
 				"--",
 				"AGENTS.md",
+				"docs/issue.md",
 				"docs/plan.md",
 				"inventory",
 			],
@@ -41,7 +43,9 @@ describe("public repository hygiene", () => {
 	});
 
 	test("contains no absolute user-home paths in public product files", () => {
-		const publicFiles = trackedFiles();
+		const publicFiles = trackedFiles().filter((file) =>
+			existsSync(join(repoRoot, file)),
+		);
 		const absoluteHome = /(?:\/Users|\/home)\/[A-Za-z0-9._-]+\//;
 		const offenders = publicFiles.filter((file) =>
 			absoluteHome.test(readFileSync(join(repoRoot, file), "utf8")),

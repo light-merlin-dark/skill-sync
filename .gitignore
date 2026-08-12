@@ -19,6 +19,7 @@ tsconfig.tsbuildinfo
 # paths.
 /AGENTS.md
 /docs/plan.md
+/docs/issue.md
 /inventory/
 
 # Local-only patch tooling.

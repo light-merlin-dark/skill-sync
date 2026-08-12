@@ -443,7 +443,7 @@ copy as an independent source.
 Install dependencies:
 
 ```bash
-bun install
+npm install
 ```
 
 Run the CLI directly:

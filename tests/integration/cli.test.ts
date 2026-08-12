@@ -9,7 +9,7 @@ import {
 	symlinkSync,
 	utimesSync,
 } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import {
 	cleanup,
 	makeFakeProjectsRoot,
@@ -20,6 +20,7 @@ import {
 	writeText,
 } from "../support";
 
+const repoRoot = resolve(import.meta.dir, "../..");
 const tempPaths: string[] = [];
 
 afterEach(() => {
@@ -45,21 +46,35 @@ function runCli(cwd: string, args: string[], env: Record<string, string>) {
 	});
 }
 
+test("fresh config is location-independent and strict by default", () => {
+	const { homeDir } = makeFakeProjectsRoot();
+	tempPaths.push(homeDir);
+
+	const initialized = runCli(repoRoot, ["config", "init", "--home", homeDir, "--json"], {});
+	expect(initialized.exitCode).toBe(0);
+	const config = JSON.parse(initialized.stdout.toString());
+	expect(config.projectsRoots).toEqual([]);
+	expect(config.visibility).toMatchObject({
+		strict: true,
+		maxGlobalIndexTokens: 4_000,
+		maxProjectIndexTokens: 500,
+	});
+});
+
 test("syncs, backs up, and restores inside a fake home", () => {
-	const repoRoot = "/Users/merlin/_dev/skill-sync";
 	const { homeDir, projectsRoot } = makeFakeProjectsRoot();
 	tempPaths.push(homeDir);
 
 	const codexRoot = makeHarnessRoot(homeDir, ".codex/skills");
 	makeHarnessRoot(homeDir, ".claude/skills");
 	makeNestedSkill(projectsRoot, "prod-control", "prod", "prod");
-	const stackSkillDir = makeNestedSkill(
+	const frameworkSkillDir = makeNestedSkill(
 		projectsRoot,
-		"packages-stack",
-		"stack-foundation",
-		"StackFoundation",
+		"packages-framework",
+		"framework-foundation",
+		"FrameworkFoundation",
 	);
-	writeText(join(stackSkillDir, "agents", "openai.yaml"), "model: gpt-5.4\n");
+	writeText(join(frameworkSkillDir, "agents", "openai.yaml"), "model: gpt-5.4\n");
 
 	const baseArgs = ["--home", homeDir, "--projects-root", projectsRoot];
 
@@ -71,15 +86,15 @@ test("syncs, backs up, and restores inside a fake home", () => {
 	expect(syncResult.exitCode).toBe(0);
 	expect(lstatSync(join(codexRoot, "prod")).isDirectory()).toBe(true);
 	expect(lstatSync(join(codexRoot, "prod", "SKILL.md")).isFile()).toBe(true);
-	expect(lstatSync(join(codexRoot, "stack-foundation")).isDirectory()).toBe(
+	expect(lstatSync(join(codexRoot, "framework-foundation")).isDirectory()).toBe(
 		true,
 	);
 	expect(
-		lstatSync(join(codexRoot, "stack-foundation", "SKILL.md")).isFile(),
+		lstatSync(join(codexRoot, "framework-foundation", "SKILL.md")).isFile(),
 	).toBe(true);
 	expect(
 		readFileSync(
-			join(codexRoot, "stack-foundation", "agents", "openai.yaml"),
+			join(codexRoot, "framework-foundation", "agents", "openai.yaml"),
 			"utf8",
 		),
 	).toContain("model: gpt-5.4");
@@ -124,7 +139,6 @@ test("syncs, backs up, and restores inside a fake home", () => {
 });
 
 test("reports unmanaged conflicts instead of clobbering them", () => {
-	const repoRoot = "/Users/merlin/_dev/skill-sync";
 	const { homeDir, projectsRoot } = makeFakeProjectsRoot();
 	tempPaths.push(homeDir);
 
@@ -148,7 +162,6 @@ test("reports unmanaged conflicts instead of clobbering them", () => {
 });
 
 test("execute can continue applying non-conflicting changes when conflicts exist", () => {
-	const repoRoot = "/Users/merlin/_dev/skill-sync";
 	const { homeDir, projectsRoot } = makeFakeProjectsRoot();
 	tempPaths.push(homeDir);
 
@@ -184,7 +197,6 @@ test("execute can continue applying non-conflicting changes when conflicts exist
 });
 
 test("stabilize runs safe dry-run by default and applies with --execute", () => {
-	const repoRoot = "/Users/merlin/_dev/skill-sync";
 	const { homeDir, projectsRoot } = makeFakeProjectsRoot();
 	tempPaths.push(homeDir);
 
@@ -219,7 +231,6 @@ test("stabilize runs safe dry-run by default and applies with --execute", () => 
 });
 
 test("surfaces source duplicate diagnostics before harness sync", () => {
-	const repoRoot = "/Users/merlin/_dev/skill-sync";
 	const { homeDir, projectsRoot } = makeFakeProjectsRoot();
 	tempPaths.push(homeDir);
 
@@ -245,7 +256,7 @@ test("surfaces source duplicate diagnostics before harness sync", () => {
 
 	writeText(
 		join(projectsRoot, "devh", "skills", "agent-browser", "SKILL.md"),
-		"---\nname: agent-browser\ndescription: Divergent agent-browser\n---\n\n# Divergent Skill\n",
+		"---\nname: agent-browser\ndescription: Divergent agent-browser\nmetadata:\n  skill-sync.visibility: global\n---\n\n# Divergent Skill\n",
 	);
 
 	const errorResult = runCli(
@@ -260,7 +271,6 @@ test("surfaces source duplicate diagnostics before harness sync", () => {
 });
 
 test("targeted execute ignores unrelated source conflicts and preserves other managed skills", () => {
-	const repoRoot = "/Users/merlin/_dev/skill-sync";
 	const { homeDir, projectsRoot } = makeFakeProjectsRoot();
 	tempPaths.push(homeDir);
 
@@ -304,7 +314,6 @@ test("targeted execute ignores unrelated source conflicts and preserves other ma
 });
 
 test("backup create tolerates symlink loops inside a skill source", () => {
-	const repoRoot = "/Users/merlin/_dev/skill-sync";
 	const { homeDir, projectsRoot } = makeFakeProjectsRoot();
 	tempPaths.push(homeDir);
 
@@ -341,7 +350,6 @@ test("backup create tolerates symlink loops inside a skill source", () => {
 });
 
 test("default command shows landing help while execute mutates and doctor diagnoses", () => {
-	const repoRoot = "/Users/merlin/_dev/skill-sync";
 	const { homeDir, projectsRoot } = makeFakeProjectsRoot();
 	tempPaths.push(homeDir);
 
@@ -351,7 +359,7 @@ test("default command shows landing help while execute mutates and doctor diagno
 	mkdirSync(join(codexRoot, "legacy-skill"), { recursive: true });
 	writeText(
 		join(codexRoot, "legacy-skill", "SKILL.md"),
-		"---\nname: legacy-skill\ndescription: Legacy skill\n---\n\n# Legacy\n",
+		"---\nname: legacy-skill\ndescription: Legacy skill\nmetadata:\n  skill-sync.visibility: global\n---\n\n# Legacy\n",
 	);
 
 	const baseArgs = ["--home", homeDir, "--projects-root", projectsRoot];
@@ -395,7 +403,6 @@ test("default command shows landing help while execute mutates and doctor diagno
 });
 
 test("codex-audit reports workspace visibility gaps that extra user roots would recover", () => {
-	const repoRoot = "/Users/merlin/_dev/skill-sync";
 	const { homeDir, projectsRoot } = makeFakeProjectsRoot();
 	tempPaths.push(homeDir);
 
@@ -473,19 +480,18 @@ rl.on('line', (line) => {
 });
 
 test("execute --harness codex also materializes agents-root bridge installs for Codex visibility", () => {
-	const repoRoot = "/Users/merlin/_dev/skill-sync";
 	const { homeDir, projectsRoot } = makeFakeProjectsRoot();
 	tempPaths.push(homeDir);
 
 	const codexRoot = makeHarnessRoot(homeDir, ".codex/skills");
 	const agentsRoot = join(homeDir, ".agents", "skills");
-	const stackSkillDir = makeNestedSkill(
+	const frameworkSkillDir = makeNestedSkill(
 		projectsRoot,
-		"packages-stack",
-		"stack",
-		"stack",
+		"packages-framework",
+		"framework",
+		"framework",
 	);
-	writeText(join(stackSkillDir, "agents", "openai.yaml"), "model: gpt-5.4\n");
+	writeText(join(frameworkSkillDir, "agents", "openai.yaml"), "model: gpt-5.4\n");
 	makeNestedSkill(projectsRoot, "advising", "advising", "advising");
 
 	const executeResult = runCli(
@@ -504,15 +510,15 @@ test("execute --harness codex also materializes agents-root bridge installs for 
 	expect(executeResult.exitCode).toBe(0);
 
 	expect(existsSync(join(codexRoot, "advising"))).toBe(false);
-	expect(existsSync(join(codexRoot, "stack"))).toBe(false);
+	expect(existsSync(join(codexRoot, "framework"))).toBe(false);
 	expect(lstatSync(join(agentsRoot, "advising")).isDirectory()).toBe(true);
 	expect(lstatSync(join(agentsRoot, "advising", "SKILL.md")).isFile()).toBe(
 		true,
 	);
-	expect(lstatSync(join(agentsRoot, "stack")).isDirectory()).toBe(true);
-	expect(lstatSync(join(agentsRoot, "stack", "SKILL.md")).isFile()).toBe(true);
+	expect(lstatSync(join(agentsRoot, "framework")).isDirectory()).toBe(true);
+	expect(lstatSync(join(agentsRoot, "framework", "SKILL.md")).isFile()).toBe(true);
 	expect(
-		readFileSync(join(agentsRoot, "stack", "agents", "openai.yaml"), "utf8"),
+		readFileSync(join(agentsRoot, "framework", "agents", "openai.yaml"), "utf8"),
 	).toContain("model: gpt-5.4");
 
 	const doctorResult = runCli(
@@ -550,7 +556,7 @@ test("execute --harness codex also materializes agents-root bridge installs for 
 	expect(
 		agentsEntries.some(
 			(entry: { installName: string; action: string; installMode: string }) =>
-				entry.installName === "stack" &&
+				entry.installName === "framework" &&
 				entry.action === "ok" &&
 				entry.installMode === "materialized-directory",
 		),
@@ -562,13 +568,12 @@ test("execute --harness codex also materializes agents-root bridge installs for 
 	).toBe(false);
 	expect(
 		codexEntries.some(
-			(entry: { installName: string }) => entry.installName === "stack",
+			(entry: { installName: string }) => entry.installName === "framework",
 		),
 	).toBe(false);
 });
 
 test("execute keeps harness-root sources on their owning harness by default", () => {
-	const repoRoot = "/Users/merlin/_dev/skill-sync";
 	const { homeDir, projectsRoot } = makeFakeProjectsRoot();
 	tempPaths.push(homeDir);
 
@@ -577,7 +582,7 @@ test("execute keeps harness-root sources on their owning harness by default", ()
 	mkdirSync(join(codexRoot, "vendor-only"), { recursive: true });
 	writeText(
 		join(codexRoot, "vendor-only", "SKILL.md"),
-		"---\nname: vendor-only\ndescription: Vendor skill\n---\n\n# Vendor\n",
+		"---\nname: vendor-only\ndescription: Vendor skill\nmetadata:\n  skill-sync.visibility: global\n---\n\n# Vendor\n",
 	);
 
 	const result = runCli(
@@ -601,7 +606,6 @@ test("execute keeps harness-root sources on their owning harness by default", ()
 });
 
 test("execute keeps harness-local skills on their owning harness only", () => {
-	const repoRoot = "/Users/merlin/_dev/skill-sync";
 	const { homeDir, projectsRoot } = makeFakeProjectsRoot();
 	tempPaths.push(homeDir);
 
@@ -610,7 +614,7 @@ test("execute keeps harness-local skills on their owning harness only", () => {
 	mkdirSync(join(hermesRoot, "dogfood"), { recursive: true });
 	writeText(
 		join(hermesRoot, "dogfood", "SKILL.md"),
-		"---\nname: dogfood\ndescription: Hermes-only skill\nskill-sync-scope: local-only\n---\n\n# Dogfood\n",
+		"---\nname: dogfood\ndescription: Hermes-only skill\nskill-sync-scope: local-only\nmetadata:\n  skill-sync.visibility: global\n---\n\n# Dogfood\n",
 	);
 
 	const result = runCli(
@@ -643,7 +647,6 @@ test("execute keeps harness-local skills on their owning harness only", () => {
 });
 
 test("doctor flags malformed skill metadata even when sync layout is otherwise fine", () => {
-	const repoRoot = "/Users/merlin/_dev/skill-sync";
 	const { homeDir, projectsRoot } = makeFakeProjectsRoot();
 	tempPaths.push(homeDir);
 
@@ -659,14 +662,13 @@ test("doctor flags malformed skill metadata even when sync layout is otherwise f
 		["doctor", "--home", homeDir, "--projects-root", projectsRoot],
 		{},
 	);
-	expect(result.exitCode).toBe(2);
-	expect(result.stdout.toString()).toContain("Source warnings:");
+	expect(result.exitCode).toBe(3);
+	expect(result.stdout.toString()).toContain("Source errors:");
 	expect(result.stdout.toString()).toContain("invalid skill metadata: db");
 	expect(result.stdout.toString()).toContain("frontmatter");
 });
 
-test("execute still applies changes when a source skill has invalid YAML frontmatter, exits non-zero", () => {
-	const repoRoot = "/Users/merlin/_dev/skill-sync";
+test("strict execute refuses a source with invalid YAML frontmatter", () => {
 	const { homeDir, projectsRoot } = makeFakeProjectsRoot();
 	tempPaths.push(homeDir);
 
@@ -701,11 +703,10 @@ test("execute still applies changes when a source skill has invalid YAML frontma
 		{},
 	);
 	expect(executeResult.exitCode).toBe(3);
-	expect(existsSync(join(codexRoot, "dev-control"))).toBe(true);
+	expect(existsSync(join(codexRoot, "dev-control"))).toBe(false);
 });
 
 test("doctor surfaces recursive harness traversal hazards that root-only checks miss", () => {
-	const repoRoot = "/Users/merlin/_dev/skill-sync";
 	const { homeDir, projectsRoot } = makeFakeProjectsRoot();
 	tempPaths.push(homeDir);
 
@@ -746,7 +747,6 @@ test("doctor surfaces recursive harness traversal hazards that root-only checks 
 });
 
 test("doctor reports and execute removes broken harness-root symlinks", () => {
-	const repoRoot = "/Users/merlin/_dev/skill-sync";
 	const { homeDir, projectsRoot } = makeFakeProjectsRoot();
 	tempPaths.push(homeDir);
 
@@ -779,7 +779,6 @@ test("doctor reports and execute removes broken harness-root symlinks", () => {
 });
 
 test("doctor reports and execute removes unmanaged top-level directory symlinks", () => {
-	const repoRoot = "/Users/merlin/_dev/skill-sync";
 	const { homeDir, projectsRoot } = makeFakeProjectsRoot();
 	tempPaths.push(homeDir);
 
@@ -822,7 +821,6 @@ test("doctor reports and execute removes unmanaged top-level directory symlinks"
 });
 
 test("clean detects and removes unmanaged top-level directory symlinks even when not state-tracked", () => {
-	const repoRoot = "/Users/merlin/_dev/skill-sync";
 	const { homeDir } = makeFakeProjectsRoot();
 	tempPaths.push(homeDir);
 
@@ -856,7 +854,6 @@ test("clean detects and removes unmanaged top-level directory symlinks even when
 });
 
 test("repair-sources restores broken nested SKILL.md symlinks from pre-migration backups", () => {
-	const repoRoot = "/Users/merlin/_dev/skill-sync";
 	const { homeDir, projectsRoot } = makeFakeProjectsRoot();
 	tempPaths.push(homeDir);
 
@@ -871,7 +868,7 @@ test("repair-sources restores broken nested SKILL.md symlinks from pre-migration
 	);
 	writeText(
 		join(projectsRoot, "appcast", "SKILL.md.pre-migration-backup"),
-		"---\nname: appcast\ndescription: Restored skill\n---\n\n# Appcast\n",
+		"---\nname: appcast\ndescription: Restored skill\nmetadata:\n  skill-sync.visibility: global\n---\n\n# Appcast\n",
 	);
 
 	const brokenCheck = runCli(
@@ -926,7 +923,6 @@ test("repair-sources restores broken nested SKILL.md symlinks from pre-migration
 });
 
 test("cache-bust touches installed skill files for codex harness", () => {
-	const repoRoot = "/Users/merlin/_dev/skill-sync";
 	const { homeDir, projectsRoot } = makeFakeProjectsRoot();
 	tempPaths.push(homeDir);
 
@@ -1000,7 +996,6 @@ test("cache-bust touches installed skill files for codex harness", () => {
 });
 
 test("version command matches package.json", () => {
-	const repoRoot = "/Users/merlin/_dev/skill-sync";
 	const packageVersion = JSON.parse(
 		readFileSync(join(repoRoot, "package.json"), "utf8"),
 	).version;
@@ -1011,7 +1006,6 @@ test("version command matches package.json", () => {
 });
 
 test("doctor emits complete parseable JSON above 64 KB", () => {
-	const repoRoot = "/Users/merlin/_dev/skill-sync";
 	const { homeDir, projectsRoot } = makeFakeProjectsRoot();
 	tempPaths.push(homeDir);
 	makeHarnessRoot(homeDir, ".agents/skills");
@@ -1045,7 +1039,6 @@ test("doctor emits complete parseable JSON above 64 KB", () => {
 });
 
 test("projects receive only declared entrypoints while routed leaves remain resolvable", () => {
-	const repoRoot = "/Users/merlin/_dev/skill-sync";
 	const { homeDir, projectsRoot } = makeFakeProjectsRoot();
 	tempPaths.push(homeDir);
 	const globalRoot = makeHarnessRoot(homeDir, ".agents/skills");
@@ -1060,44 +1053,44 @@ test("projects receive only declared entrypoints while routed leaves remain reso
 		join(globalSkill, "SKILL.md"),
 		"---\nname: capability\ndescription: Broad capability\nmetadata:\n  skill-sync.visibility: global\n---\n",
 	);
-	const stack = makeNestedSkill(
+	const framework = makeNestedSkill(
 		projectsRoot,
-		"stack-repo",
-		"stack",
-		"stack",
+		"framework-repo",
+		"framework",
+		"framework",
 	);
 	writeText(
-		join(stack, "SKILL.md"),
-		"---\nname: stack\ndescription: Stack entrypoint\nmetadata:\n  skill-sync.visibility: project\n  skill-sync.routes: stack-admin\n---\n",
+		join(framework, "SKILL.md"),
+		"---\nname: framework\ndescription: Framework entrypoint\nmetadata:\n  skill-sync.visibility: project\n  skill-sync.routes: framework-admin\n---\n",
 	);
 	const leaf = makeNestedSkill(
 		projectsRoot,
-		"stack-repo",
-		"stack-admin",
-		"stack-admin",
+		"framework-repo",
+		"framework-admin",
+		"framework-admin",
 	);
 	writeText(
 		join(leaf, "SKILL.md"),
-		"---\nname: stack-admin\ndescription: Stack admin leaf\nmetadata:\n  skill-sync.visibility: routed\n---\n",
+		"---\nname: framework-admin\ndescription: Framework admin leaf\nmetadata:\n  skill-sync.visibility: routed\n---\n",
 	);
 
 	const projectRoot = join(projectsRoot, "consumer");
 	mkdirSync(join(projectRoot, ".git"), { recursive: true });
 	writeText(
 		join(projectRoot, ".agents", "skill-sync.yaml"),
-		"version: 1\nentrypoints:\n  - stack\n",
+		"version: 1\nentrypoints:\n  - framework\n",
 	);
 	writeText(
 		join(projectRoot, "AGENTS.md"),
-		"# Consumer\n\n## Skill entrypoints\n\n- Stack ecosystem work uses `$stack`.\n",
+		"# Consumer\n\n## Skill entrypoints\n\n- Framework ecosystem work uses `$framework`.\n",
 	);
 
 	const baseArgs = ["--home", homeDir, "--projects-root", projectsRoot];
 	const globalExecute = runCli(repoRoot, ["execute", ...baseArgs], {});
 	expect(globalExecute.exitCode).toBe(0);
 	expect(existsSync(join(globalRoot, "capability", "SKILL.md"))).toBe(true);
-	expect(existsSync(join(globalRoot, "stack"))).toBe(false);
-	expect(existsSync(join(globalRoot, "stack-admin"))).toBe(false);
+	expect(existsSync(join(globalRoot, "framework"))).toBe(false);
+	expect(existsSync(join(globalRoot, "framework-admin"))).toBe(false);
 
 	const projectExecute = runCli(
 		repoRoot,
@@ -1106,10 +1099,10 @@ test("projects receive only declared entrypoints while routed leaves remain reso
 	);
 	expect(projectExecute.exitCode).toBe(0);
 	expect(
-		existsSync(join(projectRoot, ".agents", "skills", "stack", "SKILL.md")),
+		existsSync(join(projectRoot, ".agents", "skills", "framework", "SKILL.md")),
 	).toBe(true);
 	expect(
-		existsSync(join(projectRoot, ".agents", "skills", "stack-admin")),
+		existsSync(join(projectRoot, ".agents", "skills", "framework-admin")),
 	).toBe(false);
 	const firstProjectPlan = runCli(
 		repoRoot,
@@ -1130,13 +1123,13 @@ test("projects receive only declared entrypoints while routed leaves remain reso
 
 	const resolved = runCli(
 		repoRoot,
-		["resolve", "stack-admin", "--json", ...baseArgs],
+		["resolve", "framework-admin", "--json", ...baseArgs],
 		{},
 	);
 	expect(resolved.exitCode).toBe(0);
 	const resolvedJson = JSON.parse(resolved.stdout.toString());
 	expect(resolvedJson.visibility).toBe("routed");
-	expect(resolvedJson.routedFrom).toEqual(["stack"]);
+	expect(resolvedJson.routedFrom).toEqual(["framework"]);
 
 	const audit = runCli(
 		repoRoot,
@@ -1155,11 +1148,14 @@ test("projects receive only declared entrypoints while routed leaves remain reso
 });
 
 test("strict visibility prevents unclassified skills and over-budget globals from being projected", () => {
-	const repoRoot = "/Users/merlin/_dev/skill-sync";
 	const { homeDir, projectsRoot } = makeFakeProjectsRoot();
 	tempPaths.push(homeDir);
 	const globalRoot = makeHarnessRoot(homeDir, ".agents/skills");
-	makeNestedSkill(projectsRoot, "legacy", "legacy", "legacy");
+	const legacy = makeNestedSkill(projectsRoot, "legacy", "legacy", "legacy");
+	writeText(
+		join(legacy, "SKILL.md"),
+		"---\nname: legacy\ndescription: Unclassified legacy skill\n---\n",
+	);
 	const explicitGlobal = makeNestedSkill(
 		projectsRoot,
 		"global-repo",
@@ -1212,24 +1208,23 @@ test("strict visibility prevents unclassified skills and over-budget globals fro
 });
 
 test("unsupported project adapters fail closed without a global fallback", () => {
-	const repoRoot = "/Users/merlin/_dev/skill-sync";
 	const { homeDir, projectsRoot } = makeFakeProjectsRoot();
 	tempPaths.push(homeDir);
 	const globalRoot = makeHarnessRoot(homeDir, ".agents/skills");
-	const stack = makeNestedSkill(projectsRoot, "stack-repo", "stack", "stack");
+	const framework = makeNestedSkill(projectsRoot, "framework-repo", "framework", "framework");
 	writeText(
-		join(stack, "SKILL.md"),
-		"---\nname: stack\ndescription: Stack entrypoint\nmetadata:\n  skill-sync.visibility: project\n---\n",
+		join(framework, "SKILL.md"),
+		"---\nname: framework\ndescription: Framework entrypoint\nmetadata:\n  skill-sync.visibility: project\n---\n",
 	);
 	const projectRoot = join(projectsRoot, "consumer");
 	mkdirSync(join(projectRoot, ".git"), { recursive: true });
 	writeText(
 		join(projectRoot, ".agents", "skill-sync.yaml"),
-		"version: 1\nentrypoints:\n  - stack\n",
+		"version: 1\nentrypoints:\n  - framework\n",
 	);
 	writeText(
 		join(projectRoot, "AGENTS.md"),
-		"# Consumer\n\n## Skill entrypoints\n\n- Stack work uses `$stack`.\n",
+		"# Consumer\n\n## Skill entrypoints\n\n- Framework work uses `$framework`.\n",
 	);
 	const result = runCli(
 		repoRoot,
@@ -1252,8 +1247,8 @@ test("unsupported project adapters fail closed without a global fallback", () =>
 	expect(report.sourceDiagnostics.errors).toContainEqual(
 		expect.objectContaining({ kind: "unsupported-project-scope" }),
 	);
-	expect(existsSync(join(projectRoot, ".agents", "skills", "stack"))).toBe(
+	expect(existsSync(join(projectRoot, ".agents", "skills", "framework"))).toBe(
 		false,
 	);
-	expect(existsSync(join(globalRoot, "stack"))).toBe(false);
+	expect(existsSync(join(globalRoot, "framework"))).toBe(false);
 });

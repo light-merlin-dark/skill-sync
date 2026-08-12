@@ -26,7 +26,7 @@ export function writeExecutableText(path: string, content: string): void {
 
 function makeSkillFile(path: string, name?: string): void {
 	const frontmatter = name
-		? `---\nname: ${name}\ndescription: Test skill\n---\n\n`
+		? `---\nname: ${name}\ndescription: Test skill\nmetadata:\n  skill-sync.visibility: global\n---\n\n`
 		: "";
 	writeText(path, `${frontmatter}# Test Skill\n`);
 }

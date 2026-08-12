@@ -22,9 +22,10 @@ project visibility are separate decisions. Project membership comes only from
 Never work around a missing project adapter by fanning an entrypoint out
 globally.
 
-Constitutional defaults on this machine are strict visibility, a 4,000-token
-global index ceiling, and a 500-token ordinary-project ceiling. A new source
-must be explicitly classified before sync can install it.
+Product defaults are strict visibility, a 4,000-token global index ceiling, and
+a 500-token ordinary-project ceiling. Fresh installations have no implicit
+source root; add one with `skill-sync roots add <path>`. A new source must be
+explicitly classified before sync can install it.
 
 ## Core Workflow
 1. Inspect harness detection and discovered skill sources.

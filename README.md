@@ -9,6 +9,10 @@
 Sync local repo-backed agent skills across Codex, Claude Code, Cursor, Gemini, Hermes, Grok, and more.
 ```
 
+[![CI](https://github.com/light-merlin-dark/skill-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/light-merlin-dark/skill-sync/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/%40light-merlin-dark%2Fskill-sync)](https://www.npmjs.com/package/@light-merlin-dark/skill-sync)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
+
 `skill-sync` keeps local `SKILL.md` sources installed into agent harnesses using harness-native managed layouts, with drift checks, source-topology diagnostics, conflict detection, and restoreable backups. Most harnesses use thin wrapper directories with a canonical `SKILL.md` symlink; Codex now uses a materialized skill-directory install for Codex-local skills, and shared Codex-visible skills are routed through materialized `~/.agents/skills` bridge entries to avoid duplicate listings in the IDE.
 
 ## Why This Exists
@@ -37,11 +41,11 @@ unclassified sources and configured index-budget violations before mutation.
 
 ## What It Does
 
-- Scans one or more projects roots such as `~/_dev`
+- Scans one or more explicitly configured project roots such as `~/Projects`
 - Discovers:
   - top-level `SKILL.md`
   - nested `skills/*/SKILL.md`
-  - one-level nested child repos that contain `SKILL.md` or `skills/` (for example `_dev/db/db-cli`, `_dev/services/ai-guard`)
+  - one-level nested child repos that contain `SKILL.md` or `skills/` (for example `~/Projects/platform/cli`)
 - Detects installed harness skill roots
 - Supports scoped installs for harness-local skills
 - Reads standards-aligned `metadata.skill-sync.visibility`, `routes`,
@@ -73,6 +77,7 @@ Initialize config:
 
 ```bash
 skill-sync config init
+skill-sync roots add ~/Projects
 ```
 
 Inspect detected harnesses:
@@ -97,7 +102,9 @@ skill-sync codex-audit
 skill-sync audit visibility
 ```
 
-Enable constitutional enforcement once a catalog is classified:
+Fresh installations enforce classified visibility and conservative index budgets
+by default. If upgrading an older configuration that predates visibility policy,
+enable the same gate explicitly:
 
 ```bash
 skill-sync config strict-visibility --enable
@@ -107,10 +114,10 @@ skill-sync config visibility-budget --global 4000 --project 500
 Declare and project a project entrypoint:
 
 ```bash
-skill-sync project add stack --root /path/to/project
+skill-sync project add framework --root /path/to/project
 skill-sync project doctor --root /path/to/project
 skill-sync execute --project /path/to/project
-skill-sync resolve stack-admin --json
+skill-sync resolve framework-admin --json
 ```
 
 Execute:
@@ -121,7 +128,7 @@ skill-sync sync
 # Apply all non-conflicting changes (conflicts remain visible and exit non-zero)
 skill-sync execute
 # Fast, isolated project release path: never prunes unrelated managed entries
-skill-sync execute --skill email-cli
+skill-sync execute --skill capability
 ```
 
 Shortcut:
@@ -137,7 +144,8 @@ ss execute
 By default `skill-sync` uses:
 
 - config and state home: `~/.skill-sync`
-- default projects root: `~/_dev`
+- no implicit project root; add each source root with `skill-sync roots add <path>`
+- strict visibility enabled with 4,000-token global and 500-token project-index ceilings
 - managed installs default to wrapper directories; Codex-local installs use materialized directories, and shared Codex-visible skills are routed through materialized `agents` entries whenever Codex compatibility is requested
 
 It complements `npx skills`; it does not replace it.
@@ -292,7 +300,7 @@ Codex visibility/config audit and repair (including live-session and workspace P
 
 ```bash
 skill-sync codex-audit
-skill-sync codex-audit --cwd /Users/merlin/_dev/skill-sync
+skill-sync codex-audit --cwd /path/to/project
 skill-sync codex-audit --fix-config
 skill-sync codex-audit --strict-runtime --runtime-max-age-hours 2
 ```
@@ -406,10 +414,10 @@ You can also exclude or prefer project paths during discovery:
 {
   "discovery": {
     "ignorePathPrefixes": [
-      "/Users/you/_dev/some-upstream-clone"
+      "~/Projects/some-upstream-clone"
     ],
     "preferPathPrefixes": [
-      "/Users/you/_dev/packages/stack"
+      "~/Projects/canonical-skills"
     ],
     "preferPrimaryWorktree": true
   }

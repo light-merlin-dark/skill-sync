@@ -35,7 +35,7 @@ afterEach(() => {
 test("parses codex skills.config entries and flags invalid name-only blocks", () => {
 	const parsed = parseCodexSkillsConfig(`
 [[skills.config]]
-path = "/Users/merlin/.codex/skills/dev-control/SKILL.md"
+path = "/tmp/example-home/.codex/skills/dev-control/SKILL.md"
 enabled = true
 
 [[skills.config]]
@@ -527,7 +527,7 @@ test("probes codex app-server workspace visibility and detects extra-root recove
 	const skillsRoot = join(codexRoot, "skills");
 	mkdirSync(skillsRoot, { recursive: true });
 
-	const sourceRoot = join(homeDir, "_dev");
+	const sourceRoot = join(homeDir, "projects");
 	mkdirSync(join(sourceRoot, "skill-sync"), { recursive: true });
 	const advisingSource = join(
 		sourceRoot,
@@ -626,7 +626,7 @@ rl.on('line', (line) => {
 	const audit = auditCodex(homeDir, { includeRuntimeSnapshot: false });
 	const report = await probeCodexWorkspaceVisibility(
 		homeDir,
-		join(homeDir, "_dev", "skill-sync"),
+		join(homeDir, "projects", "skill-sync"),
 		audit.installed,
 	);
 
@@ -640,10 +640,12 @@ rl.on('line', (line) => {
 	expect(report.extraUserRoots).toHaveLength(2);
 	expect(
 		report.extraUserRoots.some((value) =>
-			value.endsWith("/_dev/advising/skills"),
+			value.endsWith("/projects/advising/skills"),
 		),
 	).toBe(true);
 	expect(
-		report.extraUserRoots.some((value) => value.endsWith("/_dev/vssh/skills")),
+		report.extraUserRoots.some((value) =>
+			value.endsWith("/projects/vssh/skills"),
+		),
 	).toBe(true);
 });

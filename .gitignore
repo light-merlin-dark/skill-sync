@@ -14,8 +14,13 @@ temp/
 *.tgz
 bun.lockb
 tsconfig.tsbuildinfo
-# Local-only notes / patch tooling. The active plan is the committed handoff
-# surface; other docs in this directory remain local unless explicitly added.
+# Machine-local agent context and operational evidence never belong in the
+# public repository. Public documentation is explicitly added outside these
+# paths.
+/AGENTS.md
+/docs/plan.md
+/inventory/
+
+# Local-only notes / patch tooling.
 docs/*
-!docs/plan.md
 scripts/

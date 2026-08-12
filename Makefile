@@ -48,7 +48,6 @@ publish:
 
 release:
 	@set -euo pipefail; \
-		cd /Users/merlin/_dev/skill-sync; \
 		if ! command -v gh >/dev/null 2>&1; then \
 			echo "ERROR: gh (GitHub CLI) not found in PATH."; \
 			exit 1; \

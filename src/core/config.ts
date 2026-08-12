@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import type { Config, RuntimeContext, State } from "./types";
 import {
 	ensureDir,
@@ -11,8 +11,9 @@ import {
 function getDefaultConfig(homeDir: string): Config {
 	return {
 		version: 1,
-		projectsRoots: [join(homeDir, "_dev")],
+		projectsRoots: [],
 		visibility: {
+			strict: true,
 			maxGlobalIndexTokens: 4_000,
 			maxProjectIndexTokens: 500,
 		},

@@ -18,10 +18,11 @@
 - Establish `CONSTITUTION.md` as the governing progressive-disclosure design:
   global capability entrypoints, explicitly declared project entrypoints, and
   route-only specialist skills are separate from harness install targeting.
-  The document records the measured Pi startup cost and specifies the project
-  manifest, visibility metadata, resolver, migration gates, and Stack pilot.
-- Harden frontmatter validation to the Agent Skills spec: skills missing the required `description:` are flagged as `invalid skill metadata` instead of silently passing, and `name:` is checked against `^[a-z0-9]+(?:-[a-z0-9]+)*$` (lowercase a-z, 0-9, hyphens, max 64 chars, no leading/trailing/consecutive hyphens), so uppercase or mixed-case names like `CoolifyHelper` or `Manager` are caught before they reach harnesses that reject them.
-- Add built-in **Kimi Code** harness (`~/.kimi-code/skills`) so Kimi Code sessions receive the same managed skill fan-out as other harnesses; previously the root was unmanaged, letting stale real-file copies (e.g. `dev`, `prod`) drift from their canonical `_dev` sources.
+  The document specifies project manifests, visibility metadata, route
+  resolution, deterministic migration gates, portable defaults, and public
+  acceptance criteria.
+- Harden frontmatter validation to the Agent Skills spec: skills missing the required `description:` are flagged as `invalid skill metadata` instead of silently passing, and `name:` is checked against `^[a-z0-9]+(?:-[a-z0-9]+)*$` (lowercase a-z, 0-9, hyphens, max 64 chars, no leading/trailing/consecutive hyphens), so mixed-case names are caught before they reach harnesses that reject them.
+- Add built-in **Kimi Code** harness (`~/.kimi-code/skills`) so Kimi Code sessions receive the same managed skill fan-out as other harnesses; previously the root was unmanaged, letting stale real-file copies drift from canonical project sources.
 - Tolerate broken symlinks inside materialized skill sources: copy and snapshot walkers now skip a dangling link instead of aborting the entire sync with `ENOENT`.
 - Prefer the primary git checkout over linked worktrees during discovery: a skill copy inside a linked worktree is dropped when that worktree's primary repo provides the same slug, so feature-branch worktrees under a projects root no longer collide with (or, when drifted, block sync against) the primary source. Worktree-only skills are retained. Controlled by `discovery.preferPrimaryWorktree` (default `true`).
 
@@ -57,7 +58,7 @@
 - Treat unmanaged top-level directory symlinks at desired install paths as auto-repairable wrapper drift instead of hard conflicts
 
 ## 0.3.5 (2026-04-08)
-- Discover skill repos nested one level under configured project roots (for example `_dev/db/db-cli` and `_dev/services/*`) so canonical `_dev` skills are not silently missed when container directories are used
+- Discover skill repos nested one level under configured project roots (for example `~/Projects/platform/cli`) so canonical skills are not silently missed when container directories are used
 - Ignore hidden and known noise nested directories (`.claude`, `node_modules`, `.git`, `.worktrees`, `.refactor-backups`) during nested repo discovery to prevent accidental fallback/pollution sources
 
 ## 0.3.4 (2026-04-07)

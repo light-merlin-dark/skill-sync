@@ -17,10 +17,10 @@ afterEach(() => {
 test("applies a hash-guarded standards-aligned classification idempotently", () => {
 	const { homeDir } = makeFakeProjectsRoot();
 	tempPaths.push(homeDir);
-	const sourcePath = join(homeDir, "projects", "stack", "skills", "stack");
+	const sourcePath = join(homeDir, "projects", "framework", "skills", "framework");
 	const skillPath = join(sourcePath, "SKILL.md");
 	const original =
-		"---\nname: stack\ndescription: Stack router\nmetadata:\n  short-description: Router\n---\n\n# Stack\n";
+		"---\nname: framework\ndescription: Framework router\nmetadata:\n  short-description: Router\n---\n\n# Framework\n";
 	writeText(skillPath, original);
 	const ledgerPath = join(homeDir, "classification.json");
 	writeText(
@@ -30,11 +30,11 @@ test("applies a hash-guarded standards-aligned classification idempotently", () 
 			createdAt: "2026-08-12T00:00:00.000Z",
 			entries: [
 				{
-					slug: "stack",
+					slug: "framework",
 					sourcePath,
 					expectedContentHash: hashContent(original),
 					visibility: "project",
-					routes: ["stack-ui-kit", "stack-admin"],
+					routes: ["framework-ui-kit", "framework-admin"],
 				},
 			],
 		}),
@@ -54,7 +54,7 @@ test("applies a hash-guarded standards-aligned classification idempotently", () 
 	const updated = readFileSync(skillPath, "utf8");
 	const metadata = parseSkillFrontmatterContent(updated);
 	expect(metadata.skillSyncVisibility).toBe("project");
-	expect(metadata.skillSyncRoutes).toEqual(["stack-admin", "stack-ui-kit"]);
+	expect(metadata.skillSyncRoutes).toEqual(["framework-admin", "framework-ui-kit"]);
 	expect(updated).toContain("short-description: Router");
 
 	const repeated = applyClassificationLedger(ledgerPath, false);

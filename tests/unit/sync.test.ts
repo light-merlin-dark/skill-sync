@@ -133,10 +133,10 @@ test("plans removal of an exact legacy projection for a routed canonical source"
 	const { homeDir } = makeFakeProjectsRoot();
 	tempPaths.push(homeDir);
 	const skillText =
-		"---\nname: stack-admin\ndescription: Stack admin\nmetadata:\n  skill-sync.visibility: routed\n---\n\n# Stack Admin\n";
-	const sourcePath = join(homeDir, "projects", "stack", "skills", "stack-admin");
+		"---\nname: framework-admin\ndescription: Framework admin\nmetadata:\n  skill-sync.visibility: routed\n---\n\n# Framework Admin\n";
+	const sourcePath = join(homeDir, "projects", "framework", "skills", "framework-admin");
 	const harnessRoot = join(homeDir, ".agents", "skills");
-	const destinationPath = join(harnessRoot, "stack-admin");
+	const destinationPath = join(harnessRoot, "framework-admin");
 	writeText(join(sourcePath, "SKILL.md"), skillText);
 	writeText(join(destinationPath, "SKILL.md"), skillText);
 	const harness: HarnessDefinition = {
@@ -151,16 +151,16 @@ test("plans removal of an exact legacy projection for a routed canonical source"
 		sourceKey: sourcePath,
 		sourcePath,
 		skillFilePath: join(sourcePath, "SKILL.md"),
-		repoPath: join(homeDir, "projects", "stack"),
+		repoPath: join(homeDir, "projects", "framework"),
 		projectsRoot: join(homeDir, "projects"),
 		sourceType: "nested",
-		metadataName: "stack-admin",
-		description: "Stack admin",
+		metadataName: "framework-admin",
+		description: "Framework admin",
 		frontmatterIssues: [],
 		visibility: "routed",
 		visibilityExplicit: true,
 		routes: [],
-		canonicalSlug: "stack-admin",
+		canonicalSlug: "framework-admin",
 		contentHash: "hash",
 	} as DiscoveredSkill;
 	const config = {
@@ -319,21 +319,21 @@ test("treats tracked codex materialized skill directories as already synced", ()
 	const sourcePath = join(
 		homeDir,
 		"projects",
-		"stack",
+		"framework",
 		"skills",
-		"stack-foundation",
+		"framework-foundation",
 	);
 	const sourceSkillPath = join(sourcePath, "SKILL.md");
 	writeText(
 		sourceSkillPath,
-		"---\nname: stack-foundation\ndescription: canonical\n---\n\n# Stack\n",
+		"---\nname: framework-foundation\ndescription: canonical\n---\n\n# Framework\n",
 	);
 	writeText(join(sourcePath, "agents", "openai.yaml"), "model: gpt-5.4\n");
 
-	const destination = join(harnessRoot, "stack-foundation");
+	const destination = join(harnessRoot, "framework-foundation");
 	writeText(
 		join(destination, "SKILL.md"),
-		"---\nname: stack-foundation\ndescription: canonical\n---\n\n# Stack\n",
+		"---\nname: framework-foundation\ndescription: canonical\n---\n\n# Framework\n",
 	);
 	writeText(join(destination, "agents", "openai.yaml"), "model: gpt-5.4\n");
 
@@ -349,12 +349,12 @@ test("treats tracked codex materialized skill directories as already synced", ()
 		sourceKey: sourcePath,
 		sourcePath,
 		skillFilePath: sourceSkillPath,
-		repoPath: join(homeDir, "projects", "stack"),
+		repoPath: join(homeDir, "projects", "framework"),
 		projectsRoot: join(homeDir, "projects"),
 		sourceType: "nested",
-		metadataName: "stack-foundation",
+		metadataName: "framework-foundation",
 		frontmatterIssues: [],
-		canonicalSlug: "stack-foundation",
+		canonicalSlug: "framework-foundation",
 		contentHash: "hash",
 	};
 	const config: Config = {
@@ -374,7 +374,7 @@ test("treats tracked codex materialized skill directories as already synced", ()
 			[destination]: {
 				harnessId: "codex",
 				sourcePath,
-				installName: "stack-foundation",
+				installName: "framework-foundation",
 				updatedAt: "2026-04-10T00:00:00.000Z",
 			},
 		},

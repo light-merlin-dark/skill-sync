@@ -54,14 +54,14 @@ test("discovers nested skills and skips repo-root skills as polluted", () => {
 	makeNestedSkill(
 		projectsRoot,
 		"packages",
-		"stack-foundation",
-		"StackFoundation",
+		"framework-foundation",
+		"FrameworkFoundation",
 	);
 	const config = makeConfig(projectsRoot);
 
 	const { skills, sourceDiagnostics } = discoverSkillSet(config);
 	expect(skills.map((skill) => skill.canonicalSlug)).toEqual([
-		"stack-foundation",
+		"framework-foundation",
 	]);
 	expect(
 		sourceDiagnostics.warnings.some(

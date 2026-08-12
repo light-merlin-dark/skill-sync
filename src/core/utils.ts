@@ -138,6 +138,8 @@ export function parseSkillFrontmatterContent(
 		frontmatter.description = metadata.description.trim();
 	} else if (metadata.description !== undefined) {
 		frontmatter.issues.push("`description` must be a string");
+	} else {
+		frontmatter.issues.push("missing required `description:` in frontmatter");
 	}
 
 	if (metadata["skill-sync-scope"] !== undefined) {
@@ -168,11 +170,33 @@ export function parseSkillFrontmatterContent(
 		}
 	}
 
+	if (frontmatter.name) {
+		validateSkillName(frontmatter.name, frontmatter.issues);
+	}
+
 	if (!frontmatter.name) {
 		frontmatter.issues.push("missing required `name:` in frontmatter");
 	}
 
 	return frontmatter;
+}
+
+const SKILL_NAME_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+function validateSkillName(
+	name: string,
+	issues: string[],
+): void {
+	if (name.length > 64) {
+		issues.push(
+			"invalid `name` length " + name.length + ": must be at most 64 characters",
+		);
+	}
+	if (!SKILL_NAME_RE.test(name)) {
+		issues.push(
+			"invalid `name` \"" + name + "\": must be lowercase a-z, 0-9, and hyphens only (no leading/trailing/consecutive hyphens)",
+		);
+	}
 }
 
 export function hashContent(content: string): string {

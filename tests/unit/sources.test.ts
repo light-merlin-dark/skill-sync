@@ -614,6 +614,39 @@ test("does not warn when a harness mirror exactly matches the project source", (
 	).toBe(false);
 });
 
+test("reports missing description and invalid name as frontmatter issues", () => {
+	const { homeDir, projectsRoot } = makeFakeProjectsRoot();
+	tempPaths.push(homeDir);
+
+	const missingRepo = makeNestedSkill(projectsRoot, "tool-a", "tool-a");
+	writeText(
+		`${missingRepo}/SKILL.md`,
+		"---\nname: tool-a\n---\n\n# Tool A\n",
+	);
+
+	const uppercaseRepo = makeNestedSkill(projectsRoot, "tool-b", "tool-b");
+	writeText(
+		`${uppercaseRepo}/SKILL.md`,
+		"---\nname: ToolB\ndescription: Some description\n---\n\n# Tool B\n",
+	);
+
+	const { skills } = discoverSkillSet(makeConfig(projectsRoot));
+
+	const missing = skills.find((skill) =>
+		skill.sourcePath.endsWith("/tool-a"),
+	);
+	expect(missing?.frontmatterIssues).toEqual([
+		"missing required `description:` in frontmatter",
+	]);
+
+	const uppercase = skills.find((skill) =>
+		skill.sourcePath.endsWith("/tool-b"),
+	);
+	expect(uppercase?.frontmatterIssues).toEqual([
+		"invalid `name` \"ToolB\": must be lowercase a-z, 0-9, and hyphens only (no leading/trailing/consecutive hyphens)",
+	]);
+});
+
 test("reports malformed or missing frontmatter as source warnings", () => {
 	const { homeDir, projectsRoot } = makeFakeProjectsRoot();
 	tempPaths.push(homeDir);

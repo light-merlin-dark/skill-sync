@@ -200,7 +200,7 @@ skill-sync harness add codex-beta ~/.codex-beta/skills
   scopes coexist; they are not global conflicts
 - `--skill <slug>` scopes planning and mutation to that skill, preserves all
   unrelated managed state, and filters unrelated source/traversal diagnostics
-- malformed skill metadata is surfaced during `doctor`, including missing YAML frontmatter or missing `name:`
+- malformed skill metadata is surfaced during `doctor`, including missing YAML frontmatter, missing `name:` or `description:`, or an invalid `name:` (must be lowercase a-z, 0-9, and hyphens only, max 64 characters)
 - invalid YAML frontmatter is a blocking source error (exit code `3`) so `execute` cannot report healthy while Codex/OpenCode parsing would still fail
 - broken nested `skills/<slug>/SKILL.md` symlinks are surfaced as source errors so sync does not silently drop missing skills
 - shared harness roots such as `~/.agents/skills` and `~/.skills` can still promote fallback sources when no project-root source exists for the same slug

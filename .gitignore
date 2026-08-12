@@ -21,6 +21,5 @@ tsconfig.tsbuildinfo
 /docs/plan.md
 /inventory/
 
-# Local-only notes / patch tooling.
-docs/*
+# Local-only patch tooling.
 scripts/

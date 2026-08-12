@@ -111,7 +111,7 @@ test("skips repo-root skill and discovers nested equivalent instead", () => {
 		sourceDiagnostics.warnings.some(
 			(w) => w.kind === "repo-root-pollution" && w.slug === "vssh",
 		),
-	).toBe(true);
+	).toBe(false);
 });
 
 test("collapses identical duplicate skills across repos to one canonical source", () => {
@@ -130,9 +130,16 @@ test("collapses identical duplicate skills across repos to one canonical source"
 	const { skills, sourceDiagnostics } = discoverSkillSet(config);
 	expect(skills).toHaveLength(1);
 	expect(skills[0]?.sourcePath).toContain("/agent-browser-src/");
-	expect(sourceDiagnostics.warnings).toHaveLength(1);
-	expect(sourceDiagnostics.warnings[0]?.slug).toBe("agent-browser");
-	expect(sourceDiagnostics.warnings[0]?.chosenSourcePath).toContain(
+	expect(
+		sourceDiagnostics.warnings.filter(
+			(warning) => warning.kind === "duplicate-slug",
+		),
+	).toHaveLength(1);
+	const duplicateWarning = sourceDiagnostics.warnings.find(
+		(warning) => warning.kind === "duplicate-slug",
+	);
+	expect(duplicateWarning?.slug).toBe("agent-browser");
+	expect(duplicateWarning?.chosenSourcePath).toContain(
 		"/agent-browser-src/",
 	);
 });
@@ -353,7 +360,9 @@ test("does not warn when a harness install points back to the exact same project
 	).toHaveLength(1);
 	expect(
 		sourceDiagnostics.warnings.some(
-			(warning) => warning.slug === "rbeckner-paper-creation",
+			(warning) =>
+				warning.kind === "duplicate-slug" &&
+				warning.slug === "rbeckner-paper-creation",
 		),
 	).toBe(false);
 });
@@ -748,4 +757,66 @@ test("reports and repairs broken nested SKILL.md symlinks using pre-migration ba
 		),
 	).toBe(false);
 	expect(after.skills.some((skill) => skill.canonicalSlug === "cf")).toBe(true);
+});
+
+test("parses visibility metadata and validates route targets", () => {
+	const { homeDir, projectsRoot } = makeFakeProjectsRoot();
+	tempPaths.push(homeDir);
+
+	const router = makeNestedSkill(projectsRoot, "ecosystem", "ecosystem", "ecosystem");
+	writeText(
+		`${router}/SKILL.md`,
+		"---\nname: ecosystem\ndescription: Ecosystem router\nmetadata:\n  skill-sync.visibility: project\n  skill-sync.routes: ecosystem-leaf\n  skill-sync.install-on: agents,codex\n---\n\n# Ecosystem\n",
+	);
+	const leaf = makeNestedSkill(
+		projectsRoot,
+		"ecosystem",
+		"ecosystem-leaf",
+		"ecosystem-leaf",
+	);
+	writeText(
+		`${leaf}/SKILL.md`,
+		"---\nname: ecosystem-leaf\ndescription: Specialist leaf\nmetadata:\n  skill-sync.visibility: routed\n---\n\n# Leaf\n",
+	);
+
+	const { skills, sourceDiagnostics } = discoverSkillSet(makeConfig(projectsRoot));
+	const entrypoint = skills.find((skill) => skill.canonicalSlug === "ecosystem");
+	const routed = skills.find((skill) => skill.canonicalSlug === "ecosystem-leaf");
+	expect(entrypoint?.visibility).toBe("project");
+	expect(entrypoint?.visibilityExplicit).toBe(true);
+	expect(entrypoint?.routes).toEqual(["ecosystem-leaf"]);
+	expect(entrypoint?.installHarnessIds).toEqual(["agents", "codex"]);
+	expect(routed?.visibility).toBe("routed");
+	expect(sourceDiagnostics.errors).toHaveLength(0);
+	expect(
+		sourceDiagnostics.warnings.some(
+			(warning) => warning.kind === "unclassified-visibility",
+		),
+	).toBe(false);
+});
+
+test("rejects missing and cyclic route targets", () => {
+	const { homeDir, projectsRoot } = makeFakeProjectsRoot();
+	tempPaths.push(homeDir);
+
+	const first = makeNestedSkill(projectsRoot, "routes", "first", "first");
+	writeText(
+		`${first}/SKILL.md`,
+		"---\nname: first\ndescription: First router\nmetadata:\n  skill-sync.visibility: project\n  skill-sync.routes: second,missing\n---\n",
+	);
+	const second = makeNestedSkill(projectsRoot, "routes", "second", "second");
+	writeText(
+		`${second}/SKILL.md`,
+		"---\nname: second\ndescription: Second router\nmetadata:\n  skill-sync.visibility: routed\n  skill-sync.routes: first\n---\n",
+	);
+
+	const { sourceDiagnostics } = discoverSkillSet(makeConfig(projectsRoot));
+	expect(
+		sourceDiagnostics.errors.some(
+			(error) => error.kind === "missing-route" && error.message?.includes("missing"),
+		),
+	).toBe(true);
+	expect(
+		sourceDiagnostics.errors.some((error) => error.kind === "route-cycle"),
+	).toBe(true);
 });

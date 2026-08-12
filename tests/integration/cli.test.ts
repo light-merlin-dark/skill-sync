@@ -1009,3 +1009,251 @@ test("version command matches package.json", () => {
 	expect(result.exitCode).toBe(0);
 	expect(result.stdout.toString()).toContain(`skill-sync/${packageVersion}`);
 });
+
+test("doctor emits complete parseable JSON above 64 KB", () => {
+	const repoRoot = "/Users/merlin/_dev/skill-sync";
+	const { homeDir, projectsRoot } = makeFakeProjectsRoot();
+	tempPaths.push(homeDir);
+	makeHarnessRoot(homeDir, ".agents/skills");
+	for (let index = 0; index < 260; index += 1) {
+		makeNestedSkill(
+			projectsRoot,
+			`repo-${String(index).padStart(3, "0")}`,
+			`skill-${String(index).padStart(3, "0")}`,
+			`skill-${String(index).padStart(3, "0")}`,
+		);
+	}
+
+	const result = runCli(
+		repoRoot,
+		[
+			"doctor",
+			"--json",
+			"--home",
+			homeDir,
+			"--projects-root",
+			projectsRoot,
+		],
+		{},
+	);
+	const output = result.stdout.toString();
+	expect(output.length).toBeGreaterThan(65_536);
+	const parsed = JSON.parse(output);
+	expect(parsed.schemaVersion).toBe(1);
+	expect(parsed.summary.sourcesDiscovered).toBe(260);
+	expect(parsed.harnesses[0].entries).toHaveLength(260);
+});
+
+test("projects receive only declared entrypoints while routed leaves remain resolvable", () => {
+	const repoRoot = "/Users/merlin/_dev/skill-sync";
+	const { homeDir, projectsRoot } = makeFakeProjectsRoot();
+	tempPaths.push(homeDir);
+	const globalRoot = makeHarnessRoot(homeDir, ".agents/skills");
+
+	const globalSkill = makeNestedSkill(
+		projectsRoot,
+		"capability-repo",
+		"capability",
+		"capability",
+	);
+	writeText(
+		join(globalSkill, "SKILL.md"),
+		"---\nname: capability\ndescription: Broad capability\nmetadata:\n  skill-sync.visibility: global\n---\n",
+	);
+	const stack = makeNestedSkill(
+		projectsRoot,
+		"stack-repo",
+		"stack",
+		"stack",
+	);
+	writeText(
+		join(stack, "SKILL.md"),
+		"---\nname: stack\ndescription: Stack entrypoint\nmetadata:\n  skill-sync.visibility: project\n  skill-sync.routes: stack-admin\n---\n",
+	);
+	const leaf = makeNestedSkill(
+		projectsRoot,
+		"stack-repo",
+		"stack-admin",
+		"stack-admin",
+	);
+	writeText(
+		join(leaf, "SKILL.md"),
+		"---\nname: stack-admin\ndescription: Stack admin leaf\nmetadata:\n  skill-sync.visibility: routed\n---\n",
+	);
+
+	const projectRoot = join(projectsRoot, "consumer");
+	mkdirSync(join(projectRoot, ".git"), { recursive: true });
+	writeText(
+		join(projectRoot, ".agents", "skill-sync.yaml"),
+		"version: 1\nentrypoints:\n  - stack\n",
+	);
+	writeText(
+		join(projectRoot, "AGENTS.md"),
+		"# Consumer\n\n## Skill entrypoints\n\n- Stack ecosystem work uses `$stack`.\n",
+	);
+
+	const baseArgs = ["--home", homeDir, "--projects-root", projectsRoot];
+	const globalExecute = runCli(repoRoot, ["execute", ...baseArgs], {});
+	expect(globalExecute.exitCode).toBe(0);
+	expect(existsSync(join(globalRoot, "capability", "SKILL.md"))).toBe(true);
+	expect(existsSync(join(globalRoot, "stack"))).toBe(false);
+	expect(existsSync(join(globalRoot, "stack-admin"))).toBe(false);
+
+	const projectExecute = runCli(
+		repoRoot,
+		["execute", "--project", projectRoot, ...baseArgs],
+		{},
+	);
+	expect(projectExecute.exitCode).toBe(0);
+	expect(
+		existsSync(join(projectRoot, ".agents", "skills", "stack", "SKILL.md")),
+	).toBe(true);
+	expect(
+		existsSync(join(projectRoot, ".agents", "skills", "stack-admin")),
+	).toBe(false);
+	const firstProjectPlan = runCli(
+		repoRoot,
+		["project", "doctor", "--root", projectRoot, "--json", ...baseArgs],
+		{},
+	);
+	const secondProjectPlan = runCli(
+		repoRoot,
+		["project", "doctor", "--root", projectRoot, "--json", ...baseArgs],
+		{},
+	);
+	const firstProjectJson = JSON.parse(firstProjectPlan.stdout.toString());
+	const secondProjectJson = JSON.parse(secondProjectPlan.stdout.toString());
+	expect(firstProjectJson.schemaVersion).toBe(1);
+	expect(firstProjectJson.planHash).toMatch(/^[a-f0-9]{40}$/);
+	expect(secondProjectJson.planHash).toBe(firstProjectJson.planHash);
+	expect(secondProjectJson.plan).toEqual(firstProjectJson.plan);
+
+	const resolved = runCli(
+		repoRoot,
+		["resolve", "stack-admin", "--json", ...baseArgs],
+		{},
+	);
+	expect(resolved.exitCode).toBe(0);
+	const resolvedJson = JSON.parse(resolved.stdout.toString());
+	expect(resolvedJson.visibility).toBe("routed");
+	expect(resolvedJson.routedFrom).toEqual(["stack"]);
+
+	const audit = runCli(
+		repoRoot,
+		["audit", "visibility", "--json", ...baseArgs],
+		{},
+	);
+	expect(audit.exitCode).toBe(0);
+	const auditJson = JSON.parse(audit.stdout.toString());
+	expect(auditJson.summary.coveragePercent).toBe(100);
+	expect(auditJson.summary).toMatchObject({
+		global: 1,
+		project: 1,
+		routed: 1,
+		unclassified: 0,
+	});
+});
+
+test("strict visibility prevents unclassified skills and over-budget globals from being projected", () => {
+	const repoRoot = "/Users/merlin/_dev/skill-sync";
+	const { homeDir, projectsRoot } = makeFakeProjectsRoot();
+	tempPaths.push(homeDir);
+	const globalRoot = makeHarnessRoot(homeDir, ".agents/skills");
+	makeNestedSkill(projectsRoot, "legacy", "legacy", "legacy");
+	const explicitGlobal = makeNestedSkill(
+		projectsRoot,
+		"global-repo",
+		"global-capability",
+		"global-capability",
+	);
+	writeText(
+		join(explicitGlobal, "SKILL.md"),
+		"---\nname: global-capability\ndescription: A deliberately over-budget global capability\nmetadata:\n  skill-sync.visibility: global\n---\n",
+	);
+	const baseArgs = ["--home", homeDir, "--projects-root", projectsRoot];
+	expect(
+		runCli(
+			repoRoot,
+			["config", "strict-visibility", "--enable", ...baseArgs],
+			{},
+		).exitCode,
+	).toBe(0);
+	expect(
+		runCli(
+			repoRoot,
+			["config", "visibility-budget", "--global", "10", ...baseArgs],
+			{},
+		).exitCode,
+	).toBe(0);
+
+	const doctor = runCli(repoRoot, ["doctor", "--json", ...baseArgs], {});
+	expect(doctor.exitCode).toBe(3);
+	const report = JSON.parse(doctor.stdout.toString());
+	expect(report.summary.strictVisibility).toBe(true);
+	expect(report.sourceDiagnostics.errors).toEqual(
+		expect.arrayContaining([
+			expect.objectContaining({ kind: "unclassified-visibility", slug: "legacy" }),
+			expect.objectContaining({
+				kind: "visibility-budget-exceeded",
+				slug: "global",
+			}),
+		]),
+	);
+	expect(
+		report.harnesses[0].entries.some(
+			(entry: { installName: string }) => entry.installName === "legacy",
+		),
+	).toBe(false);
+
+	const execute = runCli(repoRoot, ["execute", "--json", ...baseArgs], {});
+	expect(execute.exitCode).toBe(3);
+	expect(existsSync(join(globalRoot, "legacy"))).toBe(false);
+	expect(existsSync(join(globalRoot, "global-capability"))).toBe(false);
+});
+
+test("unsupported project adapters fail closed without a global fallback", () => {
+	const repoRoot = "/Users/merlin/_dev/skill-sync";
+	const { homeDir, projectsRoot } = makeFakeProjectsRoot();
+	tempPaths.push(homeDir);
+	const globalRoot = makeHarnessRoot(homeDir, ".agents/skills");
+	const stack = makeNestedSkill(projectsRoot, "stack-repo", "stack", "stack");
+	writeText(
+		join(stack, "SKILL.md"),
+		"---\nname: stack\ndescription: Stack entrypoint\nmetadata:\n  skill-sync.visibility: project\n---\n",
+	);
+	const projectRoot = join(projectsRoot, "consumer");
+	mkdirSync(join(projectRoot, ".git"), { recursive: true });
+	writeText(
+		join(projectRoot, ".agents", "skill-sync.yaml"),
+		"version: 1\nentrypoints:\n  - stack\n",
+	);
+	writeText(
+		join(projectRoot, "AGENTS.md"),
+		"# Consumer\n\n## Skill entrypoints\n\n- Stack work uses `$stack`.\n",
+	);
+	const result = runCli(
+		repoRoot,
+		[
+			"execute",
+			"--project",
+			projectRoot,
+			"--harness",
+			"claude",
+			"--json",
+			"--home",
+			homeDir,
+			"--projects-root",
+			projectsRoot,
+		],
+		{},
+	);
+	expect(result.exitCode).toBe(3);
+	const report = JSON.parse(result.stdout.toString());
+	expect(report.sourceDiagnostics.errors).toContainEqual(
+		expect.objectContaining({ kind: "unsupported-project-scope" }),
+	);
+	expect(existsSync(join(projectRoot, ".agents", "skills", "stack"))).toBe(
+		false,
+	);
+	expect(existsSync(join(globalRoot, "stack"))).toBe(false);
+});

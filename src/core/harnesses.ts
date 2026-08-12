@@ -7,6 +7,7 @@ type BuiltInHarness = {
 	label: string;
 	rootPaths: string[];
 	aliases?: string[];
+	nestedSkillLayout?: "flat" | "category";
 };
 
 const BUILT_IN_HARNESSES: BuiltInHarness[] = [
@@ -37,7 +38,12 @@ const BUILT_IN_HARNESSES: BuiltInHarness[] = [
 		rootPaths: ["~/.grok/skills"],
 		aliases: ["grok-build", "grok-tui", "xai-grok"],
 	},
-	{ id: "hermes", label: "Hermes", rootPaths: ["~/.hermes/skills"] },
+	{
+		id: "hermes",
+		label: "Hermes",
+		rootPaths: ["~/.hermes/skills"],
+		nestedSkillLayout: "category",
+	},
 	{ id: "kilocode", label: "KiloCode", rootPaths: ["~/.kilocode/skills"] },
 	{ id: "kimi-code", label: "Kimi Code", rootPaths: ["~/.kimi-code/skills"] },
 	{
@@ -68,6 +74,7 @@ export function resolveHarnesses(
 			label: entry.label,
 			rootPath,
 			aliases: entry.aliases,
+			nestedSkillLayout: entry.nestedSkillLayout || "flat",
 			kind: "built-in",
 			detected,
 			enabled: detected,
@@ -82,6 +89,7 @@ export function resolveHarnesses(
 				label: entry.label || entry.id,
 				rootPath,
 				kind: "custom",
+				nestedSkillLayout: "flat",
 				detected: existsSync(rootPath),
 				enabled: entry.enabled !== false,
 			};

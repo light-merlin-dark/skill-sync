@@ -30,9 +30,10 @@ global startup visibility: broad machine capabilities may be global,
 project/ecosystem entrypoints are projected only into declaring repositories,
 and specialist leaves remain route-only until needed.
 
-The visibility-aware project projection described there is the next major
-implementation program. The current release still synchronizes primarily to
-harness-global roots.
+Visibility-aware projection is implemented. `global` skills enter compatible
+user roots, `project` entrypoints enter only repositories that declare them,
+and `routed` leaves remain at their canonical source paths. Strict mode blocks
+unclassified sources and configured index-budget violations before mutation.
 
 ## What It Does
 
@@ -43,6 +44,13 @@ harness-global roots.
   - one-level nested child repos that contain `SKILL.md` or `skills/` (for example `_dev/db/db-cli`, `_dev/services/ai-guard`)
 - Detects installed harness skill roots
 - Supports scoped installs for harness-local skills
+- Reads standards-aligned `metadata.skill-sync.visibility`, `routes`,
+  `install-on`, and `deprecated-by` contracts
+- Discovers committed `.agents/skill-sync.yaml` project manifests
+- Projects only declared entrypoints to `<repo>/.agents/skills`
+- Resolves route-only leaves without copying or globally indexing them
+- Reports global/project index budgets and baseline reachability
+- Produces schema-versioned, hashed deterministic plans
 - Plans drift without changing anything
 - Syncs managed installs into harnesses using harness-native layouts (`<skill>/SKILL.md` wrapper symlinks for most harnesses, materialized directories for Codex-local installs, plus materialized `agents` bridge installs for shared Codex-visible skills)
 - Warns when the same skill slug appears multiple times in your configured project roots
@@ -86,6 +94,23 @@ skill-sync doctor
 skill-sync doctor --verbose
 skill-sync stabilize
 skill-sync codex-audit
+skill-sync audit visibility
+```
+
+Enable constitutional enforcement once a catalog is classified:
+
+```bash
+skill-sync config strict-visibility --enable
+skill-sync config visibility-budget --global 4000 --project 500
+```
+
+Declare and project a project entrypoint:
+
+```bash
+skill-sync project add stack --root /path/to/project
+skill-sync project doctor --root /path/to/project
+skill-sync execute --project /path/to/project
+skill-sync resolve stack-admin --json
 ```
 
 Execute:
@@ -93,8 +118,8 @@ Execute:
 ```bash
 skill-sync execute
 skill-sync sync
-# Apply safe changes even if some entries conflict (still exits non-zero)
-skill-sync execute --continue-on-conflict
+# Apply all non-conflicting changes (conflicts remain visible and exit non-zero)
+skill-sync execute
 # Fast, isolated project release path: never prunes unrelated managed entries
 skill-sync execute --skill email-cli
 ```
@@ -132,6 +157,14 @@ skill-sync repair-sources
 skill-sync cache-bust
 skill-sync sources
 skill-sync harnesses
+skill-sync audit visibility
+skill-sync project doctor
+skill-sync project add <entrypoint>
+skill-sync project remove <entrypoint>
+skill-sync resolve <slug>
+skill-sync baseline create
+skill-sync classify plan <ledger>
+skill-sync classify apply <ledger> --execute
 ```
 
 Backups:
@@ -146,6 +179,8 @@ Config:
 
 ```bash
 skill-sync config init
+skill-sync config strict-visibility --enable
+skill-sync config visibility-budget --global 4000 --project 500
 skill-sync roots list
 skill-sync roots add /path/to/projects
 skill-sync roots remove /path/to/projects
@@ -204,6 +239,17 @@ skill-sync harness add codex-beta ~/.codex-beta/skills
 ## Safety Rules
 
 - `doctor` never mutates
+- strict visibility excludes unclassified sources from desired plans and makes
+  them blocking errors
+- strict execution also blocks global or project indexes above the configured
+  token budgets before any plan mutation
+- project manifests are the only project-membership authority; `AGENTS.md`
+  prose and dependency inference are not configuration
+- project `AGENTS.md` is linted for a matching `## Skill entrypoints` section
+- unsupported project adapters fail as `unsupported-project-scope`; SkillSync
+  never globalizes the entrypoint as a fallback
+- project projections are generated state; commit the manifest and ignore
+  `.agents/skills/`
 - `execute` / `sync` replace managed or missing entries, and prune top-level harness symlinks that point to directories
 - `clean` scans selected harness roots directly (not only state-tracked entries) and removes top-level directory symlinks that pollute parsers
 - unmanaged conflicts are reported, not overwritten
@@ -217,6 +263,10 @@ skill-sync harness add codex-beta ~/.codex-beta/skills
 - broken nested `skills/<slug>/SKILL.md` symlinks are surfaced as source errors so sync does not silently drop missing skills
 - shared harness roots such as `~/.agents/skills` and `~/.skills` can still promote fallback sources when no project-root source exists for the same slug
 - vendor harness roots such as Codex, Hermes, Claude Code, Cursor, OpenCode, KiloCode, and similar tool-local folders default to local-only installs unless frontmatter explicitly widens the scope
+- new metadata belongs beneath the Agent Skills-standard `metadata` map. Use
+  `skill-sync.visibility: global|project|routed`; `skill-sync.routes` and
+  `skill-sync.install-on` are comma-separated strings. Legacy top-level scope
+  keys remain readable only for migration compatibility
 - harness-native skills can stay local-only via frontmatter instead of being fanned out everywhere
 - recursive harness-root pollution is surfaced during `doctor` before OpenCode or another recursive scanner hits duplicate or unreadable descendant skill files
 - broken root-level harness symlinks are surfaced during `doctor` and pruned automatically during `execute`

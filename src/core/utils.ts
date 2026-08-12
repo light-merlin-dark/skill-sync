@@ -170,6 +170,74 @@ export function parseSkillFrontmatterContent(
 		}
 	}
 
+	const skillSyncMetadata = metadata.metadata;
+	if (
+		skillSyncMetadata !== undefined &&
+		(typeof skillSyncMetadata !== "object" ||
+			skillSyncMetadata === null ||
+			Array.isArray(skillSyncMetadata))
+	) {
+		frontmatter.issues.push("`metadata` must be a YAML mapping/object");
+	} else if (skillSyncMetadata) {
+		const extension = skillSyncMetadata as Record<string, unknown>;
+		const visibility = extension["skill-sync.visibility"];
+		if (visibility !== undefined) {
+			if (typeof visibility !== "string") {
+				frontmatter.issues.push(
+					"`metadata.skill-sync.visibility` must be `global`, `project`, or `routed`",
+				);
+			} else {
+				const normalized = visibility.trim().toLowerCase();
+				if (
+					normalized === "global" ||
+					normalized === "project" ||
+					normalized === "routed"
+				) {
+					frontmatter.skillSyncVisibility = normalized;
+				} else {
+					frontmatter.issues.push(
+						"`metadata.skill-sync.visibility` must be `global`, `project`, or `routed`",
+					);
+				}
+			}
+		}
+
+		const routes = extension["skill-sync.routes"];
+		if (routes !== undefined) {
+			const parsedRoutes = parseStringListValue(routes).map(slugify);
+			if (parsedRoutes.length > 0) {
+				frontmatter.skillSyncRoutes = [...new Set(parsedRoutes)];
+			} else {
+				frontmatter.issues.push(
+					"`metadata.skill-sync.routes` must be a comma-separated string or string list",
+				);
+			}
+		}
+
+		const installOn = extension["skill-sync.install-on"];
+		if (installOn !== undefined) {
+			const parsedInstallOn = parseStringListValue(installOn);
+			if (parsedInstallOn.length > 0) {
+				frontmatter.skillSyncInstallOn = parsedInstallOn;
+			} else {
+				frontmatter.issues.push(
+					"`metadata.skill-sync.install-on` must be a comma-separated string or string list",
+				);
+			}
+		}
+
+		const deprecatedBy = extension["skill-sync.deprecated-by"];
+		if (deprecatedBy !== undefined) {
+			if (typeof deprecatedBy !== "string" || !deprecatedBy.trim()) {
+				frontmatter.issues.push(
+					"`metadata.skill-sync.deprecated-by` must be a canonical skill slug",
+				);
+			} else {
+				frontmatter.skillSyncDeprecatedBy = slugify(deprecatedBy.trim());
+			}
+		}
+	}
+
 	if (frontmatter.name) {
 		validateSkillName(frontmatter.name, frontmatter.issues);
 	}
@@ -332,6 +400,10 @@ function parseFrontmatterListValue(rawValue: string): string[] {
 }
 
 function parseInstallOnValue(rawValue: unknown): string[] {
+	return parseStringListValue(rawValue);
+}
+
+function parseStringListValue(rawValue: unknown): string[] {
 	if (typeof rawValue === "string") {
 		return parseFrontmatterListValue(rawValue);
 	}

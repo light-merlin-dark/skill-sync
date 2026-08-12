@@ -156,11 +156,19 @@ export function discoverSkillSet(
 		[...deduped.values()],
 		discovery.preferPathPrefixes,
 	);
+	const resolvedSlugs = new Set(skills.map((skill) => skill.canonicalSlug));
+	// A repo-root SKILL.md is ignored by design. Once the same slug has a
+	// canonical nested source, that legacy pointer can no longer pollute a
+	// harness plan and should not keep an otherwise stable machine in drift.
+	// Keep the warning only when no usable canonical source exists.
+	const actionablePollutionWarnings = pollutionWarnings.filter(
+		(warning) => !resolvedSlugs.has(warning.slug),
+	);
 	return {
 		skills: skills.sort((a, b) => a.sourceKey.localeCompare(b.sourceKey)),
 		sourceDiagnostics: {
 			warnings: [
-				...pollutionWarnings,
+				...actionablePollutionWarnings,
 				...pollutionFrontmatterWarnings,
 				...sourceDiagnostics.warnings,
 			].sort(compareDiagnostics),
@@ -202,7 +210,7 @@ const NESTED_REPO_IGNORED_NAMES = new Set([
 	".refactor-backups",
 ]);
 
-function listProjectRepoCandidates(projectsRoot: string): string[] {
+export function listProjectRepoCandidates(projectsRoot: string): string[] {
 	const candidates = new Set<string>();
 	const rootRepos = listImmediateDirectories(projectsRoot);
 	for (const repoPath of rootRepos) {
@@ -299,12 +307,17 @@ function buildDiscoveredSkill(
 		sourceType,
 		harnessId,
 		metadataName,
+		description: frontmatter.description,
 		frontmatterIssues: frontmatter.issues,
 		installHarnessIds: resolveInstallHarnessIds(
 			sourceType,
 			harnessId,
 			frontmatter,
 		),
+		visibility: frontmatter.skillSyncVisibility || "unclassified",
+		visibilityExplicit: Boolean(frontmatter.skillSyncVisibility),
+		routes: frontmatter.skillSyncRoutes || [],
+		deprecatedBy: frontmatter.skillSyncDeprecatedBy,
 		canonicalSlug,
 		contentHash,
 		worktreePrimaryRepoPath: detectWorktreePrimaryRepo(normalizedRepoPath),
@@ -313,13 +326,14 @@ function buildDiscoveredSkill(
 
 export function describeSkill(skill: DiscoveredSkill): string {
 	const scopeSuffix = describeInstallScope(skill);
+	const visibilitySuffix = ` [visibility: ${skill.visibility}]`;
 	if (skill.sourceType === "harness-root" && skill.harnessId) {
-		return `${skill.canonicalSlug} <= ${skill.harnessId}:${skill.sourcePath}${scopeSuffix}`;
+		return `${skill.canonicalSlug} <= ${skill.harnessId}:${skill.sourcePath}${scopeSuffix}${visibilitySuffix}`;
 	}
 	const repoRelative =
 		relative(skill.projectsRoot, skill.sourcePath) ||
 		basename(skill.sourcePath);
-	return `${skill.canonicalSlug} <= ${repoRelative}${scopeSuffix}`;
+	return `${skill.canonicalSlug} <= ${repoRelative}${scopeSuffix}${visibilitySuffix}`;
 }
 
 function isIgnoredSource(
@@ -475,6 +489,9 @@ function resolveGlobalDuplicates(
 			}
 		}
 	}
+	const visibilityDiagnostics = validateVisibilityGraph(resolved);
+	warnings.push(...visibilityDiagnostics.warnings);
+	errors.push(...visibilityDiagnostics.errors);
 	return {
 		skills: resolved,
 		sourceDiagnostics: {
@@ -482,6 +499,107 @@ function resolveGlobalDuplicates(
 			errors: errors.sort(compareDiagnostics),
 		},
 	};
+}
+
+function validateVisibilityGraph(skills: DiscoveredSkill[]): SourceDiagnostics {
+	const warnings: SourceDiagnostic[] = [];
+	const errors: SourceDiagnostic[] = [];
+	const bySlug = new Map<string, DiscoveredSkill[]>();
+	for (const skill of skills) {
+		const group = bySlug.get(skill.canonicalSlug) || [];
+		group.push(skill);
+		bySlug.set(skill.canonicalSlug, group);
+		if (skill.visibility === "unclassified") {
+			warnings.push({
+				kind: "unclassified-visibility",
+				slug: skill.canonicalSlug,
+				severity: "warning",
+				resolution: "classify-visibility",
+				sourcePaths: [skill.sourcePath],
+				message:
+					"skill has no explicit metadata.skill-sync.visibility and retains legacy global behavior until strict visibility is enabled",
+			});
+		}
+	}
+
+	for (const skill of skills) {
+		for (const targetSlug of skill.routes) {
+			const targets = bySlug.get(targetSlug) || [];
+			if (targets.length !== 1) {
+				errors.push({
+					kind: "missing-route",
+					slug: skill.canonicalSlug,
+					severity: "error",
+					resolution: "fix-route-graph",
+					sourcePaths: [skill.sourcePath, ...targets.map((target) => target.sourcePath)],
+					message:
+						targets.length === 0
+							? `route target ${targetSlug} does not resolve`
+							: `route target ${targetSlug} resolves to ${targets.length} harness-specific sources and is ambiguous`,
+				});
+				continue;
+			}
+			const target = targets[0];
+			if (target && target.visibility !== "routed") {
+				warnings.push({
+					kind: "invalid-route-visibility",
+					slug: skill.canonicalSlug,
+					severity: "warning",
+					resolution: "fix-route-graph",
+					sourcePaths: [skill.sourcePath, target.sourcePath],
+					message: `route target ${targetSlug} is ${target.visibility}; specialist route targets should be routed`,
+				});
+			}
+		}
+
+		if (skill.deprecatedBy && !bySlug.has(skill.deprecatedBy)) {
+			errors.push({
+				kind: "missing-deprecation-target",
+				slug: skill.canonicalSlug,
+				severity: "error",
+				resolution: "fix-route-graph",
+				sourcePaths: [skill.sourcePath],
+				message: `deprecated replacement ${skill.deprecatedBy} does not resolve`,
+			});
+		}
+	}
+
+	const visiting = new Set<string>();
+	const visited = new Set<string>();
+	const reportedCycles = new Set<string>();
+	const visit = (slug: string, path: string[]): void => {
+		if (visiting.has(slug)) {
+			const start = path.indexOf(slug);
+			const cycle = [...path.slice(Math.max(0, start)), slug];
+			const key = [...new Set(cycle)].sort().join("|");
+			if (!reportedCycles.has(key)) {
+				reportedCycles.add(key);
+				const skill = bySlug.get(slug)?.[0];
+				errors.push({
+					kind: "route-cycle",
+					slug,
+					severity: "error",
+					resolution: "fix-route-graph",
+					sourcePaths: cycle
+						.map((item) => bySlug.get(item)?.[0]?.sourcePath)
+						.filter((item): item is string => Boolean(item)),
+					message: `route cycle detected: ${cycle.join(" -> ")}`,
+				});
+			}
+			return;
+		}
+		if (visited.has(slug)) return;
+		visiting.add(slug);
+		const skill = bySlug.get(slug)?.[0];
+		for (const target of skill?.routes || []) {
+			if (bySlug.has(target)) visit(target, [...path, slug]);
+		}
+		visiting.delete(slug);
+		visited.add(slug);
+	};
+	for (const slug of bySlug.keys()) visit(slug, []);
+
+	return { warnings, errors };
 }
 
 function havePairwiseDisjointInstallScopes(

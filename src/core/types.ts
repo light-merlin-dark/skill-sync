@@ -1,6 +1,12 @@
 export type Config = {
 	version: 1;
 	projectsRoots: string[];
+	visibility: {
+		baselinePath?: string;
+		strict?: boolean;
+		maxGlobalIndexTokens?: number;
+		maxProjectIndexTokens?: number;
+	};
 	discovery: {
 		ignorePathPrefixes: string[];
 		preferPathPrefixes: string[];
@@ -34,8 +40,17 @@ export type SkillFrontmatter = {
 	description?: string;
 	skillSyncScope?: "global" | "local-only";
 	skillSyncInstallOn?: string[];
+	skillSyncVisibility?: Exclude<SkillVisibility, "unclassified">;
+	skillSyncRoutes?: string[];
+	skillSyncDeprecatedBy?: string;
 	issues: string[];
 };
+
+export type SkillVisibility =
+	| "global"
+	| "project"
+	| "routed"
+	| "unclassified";
 
 export type State = {
 	version: 1;
@@ -63,6 +78,8 @@ export type HarnessDefinition = {
 	detected: boolean;
 	enabled: boolean;
 	aliases?: string[];
+	/** Harness-owned category directories may intentionally contain many skills. */
+	nestedSkillLayout?: "flat" | "category";
 };
 
 export type DiscoveredSkill = {
@@ -74,8 +91,13 @@ export type DiscoveredSkill = {
 	sourceType: "repo-root" | "nested" | "harness-root";
 	harnessId?: string;
 	metadataName?: string;
+	description?: string;
 	frontmatterIssues: string[];
 	installHarnessIds?: string[];
+	visibility: SkillVisibility;
+	visibilityExplicit: boolean;
+	routes: string[];
+	deprecatedBy?: string;
 	canonicalSlug: string;
 	contentHash: string;
 	// Set to the normalized primary-repo working-tree path when this source lives
@@ -90,7 +112,15 @@ export type SourceDiagnostic = {
 		| "invalid-frontmatter"
 		| "repo-root-pollution"
 		| "broken-skill-link"
-		| "fanout-high";
+		| "fanout-high"
+		| "unclassified-visibility"
+		| "missing-route"
+		| "route-cycle"
+		| "invalid-route-visibility"
+		| "missing-deprecation-target"
+		| "visibility-budget-exceeded"
+		| "unsupported-project-scope"
+		| "missing-project-guidance";
 	slug: string;
 	severity: "warning" | "error";
 	resolution:
@@ -99,7 +129,12 @@ export type SourceDiagnostic = {
 		| "fix-skill-frontmatter"
 		| "move-to-skills-dir"
 		| "restore-skill-file"
-		| "reduce-fanout";
+		| "reduce-fanout"
+		| "classify-visibility"
+		| "fix-route-graph"
+		| "reduce-visibility-budget"
+		| "add-project-adapter"
+		| "add-project-guidance";
 	chosenSourcePath?: string;
 	sourcePaths: string[];
 	message?: string;
@@ -143,6 +178,7 @@ export type PlannedAction =
 	| "repair"
 	| "replace-managed"
 	| "remove-managed"
+	| "remove-obsolete"
 	| "remove-broken"
 	| "remove-dir-symlink"
 	| "prune-state"
@@ -197,6 +233,14 @@ export type HarnessTraversalDiagnostic = {
 };
 
 export type SyncPlan = {
+	schemaVersion: 1;
+	planHash: string;
+	projectProjection?: {
+		projectRoot: string;
+		manifestPath: string;
+		requestedAdapters: string[];
+		adapter: "agents";
+	};
 	harnesses: PlannedHarness[];
 	changes: number;
 	conflicts: number;

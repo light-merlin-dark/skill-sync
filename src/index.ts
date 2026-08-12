@@ -5,6 +5,11 @@ import { cac } from "cac";
 import { createBackup, listBackups, restoreBackup } from "./core/backup";
 import { applyCacheBust, collectCacheBustTargets } from "./core/cache";
 import {
+	applyClassificationLedger,
+	classificationReportToJson,
+	lockClassificationLedger,
+} from "./core/classification";
+import {
 	auditCodex,
 	hasCodexInstallLayoutMismatch,
 	probeCodexWorkspaceVisibility,
@@ -22,8 +27,19 @@ import {
 	removeHarness,
 	removeProjectsRoot,
 	saveState,
+	setVisibilityBaseline,
+	setStrictVisibility,
+	setVisibilityBudgets,
 } from "./core/config";
 import { filterHarnesses, resolveHarnesses } from "./core/harnesses";
+import {
+	buildProjectSyncPlan,
+	discoverProjectManifests,
+	findProjectRoot,
+	loadProjectManifest,
+	projectManifestToJson,
+	writeProjectManifest,
+} from "./core/project";
 import {
 	describeSkill,
 	discoverSkillSet,
@@ -46,7 +62,18 @@ import type {
 	SourceDiagnostic,
 	SyncPlan,
 } from "./core/types";
-import { buildRuntimeContext, slugify } from "./core/utils";
+import {
+	buildRuntimeContext,
+	readJsonFile,
+	slugify,
+	writeJsonFile,
+} from "./core/utils";
+import {
+	buildVisibilityReport,
+	createVisibilityBaseline,
+	type VisibilityBaseline,
+	type VisibilityReport,
+} from "./core/visibility";
 
 const cli = cac("skill-sync");
 const version = readCliVersion();
@@ -70,7 +97,17 @@ type GlobalOptions = {
 	projectsRoot?: string | string[];
 	harness?: string | string[];
 	skill?: string | string[];
+	project?: string;
+	strictVisibility?: boolean;
+	writeBaseline?: string;
+	baseline?: string;
 };
+
+function loadConfiguredBaseline(
+	path: string | undefined,
+): VisibilityBaseline | undefined {
+	return path ? readJsonFile<VisibilityBaseline>(path) || undefined : undefined;
+}
 
 function normalizeList(value: string | string[] | undefined): string[] {
 	if (!value) {
@@ -277,6 +314,10 @@ function print(value: JsonValue | string, json: boolean): void {
 	console.log(value);
 }
 
+function setExitCode(code: number): void {
+	process.exitCode = Math.max(Number(process.exitCode) || 0, code);
+}
+
 function renderLandingHelp(): string {
 	return [
 		"skill-sync",
@@ -456,6 +497,7 @@ function renderDoctorReport(
 	state: ReturnType<typeof loadState>,
 	skills: DiscoveredSkill[],
 	harnessCount: number,
+	visibilityReport: VisibilityReport,
 	verbose?: boolean,
 ): string {
 	if (verbose || hasConflicts(plan)) {
@@ -524,6 +566,15 @@ function renderDoctorReport(
 	}
 	lines.push("Doctor");
 	lines.push(`Sources: ${skills.length} discovered skill source(s)`);
+	lines.push(
+		`Visibility: global=${visibilityReport.summary.global}, project=${visibilityReport.summary.project}, routed=${visibilityReport.summary.routed}, unclassified=${visibilityReport.summary.unclassified}`,
+	);
+	lines.push(
+		`Global index budget: ${visibilityReport.globalBudget.skills} skill(s), ${visibilityReport.globalBudget.characters} character(s), ~${visibilityReport.globalBudget.estimatedTokens} token(s)`,
+	);
+	lines.push(
+		`Coverage: ${visibilityReport.summary.coverageReachable}/${visibilityReport.summary.coverageTotal} reachable (${visibilityReport.summary.coveragePercent}%) across ${visibilityReport.summary.projectManifests} project manifest(s)`,
+	);
 	const scopedSources = skills.filter(
 		(skill) => skill.installHarnessIds && skill.installHarnessIds.length > 0,
 	).length;
@@ -735,6 +786,8 @@ function planSync(options: GlobalOptions): {
 	harnesses: HarnessDefinition[];
 	skills: DiscoveredSkill[];
 	state: ReturnType<typeof loadState>;
+	visibilityReport: VisibilityReport;
+	strictVisibility: boolean;
 } {
 	return withRuntime(options, (runtime) => {
 		const config = loadConfig(runtime);
@@ -748,11 +801,31 @@ function planSync(options: GlobalOptions): {
 			config,
 			allHarnesses,
 		);
-		const skills = selectDiscoveredSkills(allSkills, options);
-		const selectedSourceDiagnostics = selectSourceDiagnostics(
+		let skills = selectDiscoveredSkills(allSkills, options);
+		let selectedSourceDiagnostics = selectSourceDiagnostics(
 			sourceDiagnostics,
 			options,
 		);
+		const strictVisibility =
+			Boolean(options.strictVisibility) || config.visibility.strict === true;
+		if (strictVisibility) {
+			const unclassified = selectedSourceDiagnostics.warnings.filter(
+				(item) => item.kind === "unclassified-visibility",
+			);
+			selectedSourceDiagnostics = {
+				warnings: selectedSourceDiagnostics.warnings.filter(
+					(item) => item.kind !== "unclassified-visibility",
+				),
+				errors: [
+					...selectedSourceDiagnostics.errors,
+					...unclassified.map((item) => ({ ...item, severity: "error" as const })),
+				],
+			};
+			// Strict mode is preventive, not merely diagnostic: an unclassified
+			// source is never included in a desired harness plan and therefore
+			// cannot silently recreate the historical global fan-out.
+			skills = skills.filter((skill) => skill.visibility !== "unclassified");
+		}
 		const state = loadState(runtime);
 		const fullPlan = buildSyncPlan(
 			skills,
@@ -767,7 +840,29 @@ function planSync(options: GlobalOptions): {
 			skills,
 			options,
 		);
-		return { runtime, plan, harnesses, skills, state };
+		const visibilityReport = buildVisibilityReport(
+			allSkills,
+			discoverProjectManifests(config),
+			loadConfiguredBaseline(options.baseline || config.visibility.baselinePath),
+			config.visibility,
+		);
+		if (strictVisibility && !visibilityReport.policy.globalWithinBudget) {
+			plan.sourceDiagnostics.errors.push(
+				...(visibilityReport.diagnostics.errors as unknown as SourceDiagnostic[]).filter(
+					(item) =>
+						item.kind === "visibility-budget-exceeded" && item.slug === "global",
+				),
+			);
+		}
+		return {
+			runtime,
+			plan,
+			harnesses,
+			skills,
+			state,
+			visibilityReport,
+			strictVisibility,
+		};
 	});
 }
 
@@ -777,7 +872,9 @@ function printDoctorResult(
 	state: ReturnType<typeof loadState>,
 	skills: DiscoveredSkill[],
 	harnessCount: number,
-): never {
+	visibilityReport: VisibilityReport,
+	strictVisibility: boolean,
+): void {
 	print(
 		options.json
 			? ({
@@ -788,6 +885,7 @@ function printDoctorResult(
 							(skill) =>
 								skill.installHarnessIds && skill.installHarnessIds.length > 0,
 						).length,
+						strictVisibility,
 						harnessesDetected: harnessCount,
 						expectedInstalls: plan.harnesses
 							.flatMap((harness) => harness.entries)
@@ -801,12 +899,21 @@ function printDoctorResult(
 						ok: plan.ok,
 						traversalHazards: plan.harnessDiagnostics.length,
 						orphans: plan.orphanSkills?.length || 0,
+						visibility: visibilityReport.summary,
+						globalBudget: visibilityReport.globalBudget,
 					},
 				} as unknown as JsonValue)
-			: renderDoctorReport(plan, state, skills, harnessCount, options.verbose),
+			: renderDoctorReport(
+					plan,
+					state,
+					skills,
+					harnessCount,
+					visibilityReport,
+					options.verbose,
+				),
 		Boolean(options.json),
 	);
-	process.exit(hasConflicts(plan) ? 3 : hasDrift(plan) ? 2 : 0);
+	setExitCode(hasConflicts(plan) ? 3 : hasDrift(plan) ? 2 : 0);
 }
 
 cli
@@ -817,13 +924,29 @@ cli
 	.option("--projects-root <path>", "Override configured projects root")
 	.option("--harness <id>", "Filter to one or more harness ids")
 	.option("--skill <slug>", "Filter to one or more skill slugs")
+	.option("--strict-visibility", "Treat unclassified visibility as an error")
 	.option(
 		"--home <path>",
 		"Override HOME for skill-sync state and harness resolution",
 	)
 	.action((options: GlobalOptions) => {
-		const { plan, state, skills, harnesses } = planSync(options);
-		printDoctorResult(plan, options, state, skills, harnesses.length);
+		const {
+			plan,
+			state,
+			skills,
+			harnesses,
+			visibilityReport,
+			strictVisibility,
+		} = planSync(options);
+		printDoctorResult(
+			plan,
+			options,
+			state,
+			skills,
+			harnesses.length,
+			visibilityReport,
+			strictVisibility,
+		);
 	});
 
 cli
@@ -834,13 +957,29 @@ cli
 	.option("--projects-root <path>", "Override configured projects root")
 	.option("--harness <id>", "Filter to one or more harness ids")
 	.option("--skill <slug>", "Filter to one or more skill slugs")
+	.option("--strict-visibility", "Treat unclassified visibility as an error")
 	.option(
 		"--home <path>",
 		"Override HOME for skill-sync state and harness resolution",
 	)
 	.action((options: GlobalOptions) => {
-		const { plan, state, skills, harnesses } = planSync(options);
-		printDoctorResult(plan, options, state, skills, harnesses.length);
+		const {
+			plan,
+			state,
+			skills,
+			harnesses,
+			visibilityReport,
+			strictVisibility,
+		} = planSync(options);
+		printDoctorResult(
+			plan,
+			options,
+			state,
+			skills,
+			harnesses.length,
+			visibilityReport,
+			strictVisibility,
+		);
 	});
 
 cli
@@ -942,17 +1081,70 @@ cli
 					hasRuntimeSnapshotDrift ||
 					hasWorkspaceIssues
 				) {
-					process.exit(2);
+					setExitCode(2);
 				}
 			});
 		},
 	);
 
 function runExecute(options: GlobalOptions): void {
+	if (options.project) {
+		withRuntime(options, (runtime) => {
+			const config = loadConfig(runtime);
+			config.projectsRoots = resolveProjectsOverride(
+				config.projectsRoots,
+				options,
+			);
+			const harnesses = resolveHarnesses(runtime.homeDir, config);
+			const { skills } = discoverSkillSet(config, harnesses);
+			const projectRoot = findProjectRoot(options.project || process.cwd());
+			const manifest = loadProjectManifest(projectRoot);
+			const state = loadState(runtime);
+			const plan = buildProjectSyncPlan(manifest, skills, state, {
+				requestedAdapters: normalizeList(options.harness),
+			});
+			const report = buildVisibilityReport(
+				skills,
+				[manifest],
+				undefined,
+				config.visibility,
+			);
+			if (config.visibility.strict === true) {
+				plan.sourceDiagnostics.errors.push(
+					...(report.diagnostics.errors as unknown as SourceDiagnostic[]).filter(
+						(item) =>
+							item.kind === "visibility-budget-exceeded" &&
+							item.slug === `project:${projectRoot}`,
+					),
+				);
+			}
+			const blocked = hasConflicts(plan);
+			const nextState = blocked
+				? state
+				: applySyncPlan(plan, state, Boolean(options.dryRun));
+			if (!options.dryRun && !blocked) saveState(runtime, nextState);
+			print(
+				options.json
+					? (plan as unknown as JsonValue)
+					: renderPlan(plan, {
+							verbose: options.verbose || hasConflicts(plan),
+							includeOrphans: false,
+						}),
+				Boolean(options.json),
+			);
+			if (hasConflicts(plan)) setExitCode(3);
+		});
+		return;
+	}
 	const { runtime, plan, state } = planSync(options);
 	const hasPlanConflicts = hasConflicts(plan);
-	const nextState = applySyncPlan(plan, state, Boolean(options.dryRun));
-	if (!options.dryRun) {
+	const blockedByBudget = plan.sourceDiagnostics.errors.some(
+		(diagnostic) => diagnostic.kind === "visibility-budget-exceeded",
+	);
+	const nextState = blockedByBudget
+		? state
+		: applySyncPlan(plan, state, Boolean(options.dryRun));
+	if (!options.dryRun && !blockedByBudget) {
 		saveState(runtime, nextState);
 	}
 	print(
@@ -962,7 +1154,7 @@ function runExecute(options: GlobalOptions): void {
 		Boolean(options.json),
 	);
 	if (hasPlanConflicts) {
-		process.exit(3);
+		setExitCode(3);
 	}
 }
 
@@ -1090,6 +1282,7 @@ async function runStabilize(options: StabilizeOptions): Promise<void> {
 		if (options.json) {
 			print(
 				{
+					schemaVersion: 1,
 					summary,
 					repair: repairReport,
 					prePlan: plan,
@@ -1146,7 +1339,7 @@ async function runStabilize(options: StabilizeOptions): Promise<void> {
 		}
 
 		if (postPlan.conflicts > 0) {
-			process.exit(3);
+			setExitCode(3);
 		}
 		if (
 			postCodexAudit &&
@@ -1155,7 +1348,7 @@ async function runStabilize(options: StabilizeOptions): Promise<void> {
 				postCodexAudit.runtimeMissingSkills.length > 0 ||
 				postCodexAudit.runtimeMissingSkillsInstalledAfterSnapshot.length > 0)
 		) {
-			process.exit(2);
+			setExitCode(2);
 		}
 		if (
 			postCodexWorkspaceProbes.some(
@@ -1163,14 +1356,14 @@ async function runStabilize(options: StabilizeOptions): Promise<void> {
 					probe.status === "ok" && probe.missingManagedSkills.length > 0,
 			)
 		) {
-			process.exit(2);
+			setExitCode(2);
 		}
 		if (
 			hasDrift(postPlan) ||
 			repairReport.skipped.length > 0 ||
 			cacheResult.skipped.length > 0
 		) {
-			process.exit(2);
+			setExitCode(2);
 		}
 	});
 }
@@ -1204,6 +1397,8 @@ cli
 	.option("--projects-root <path>", "Override configured projects root")
 	.option("--harness <id>", "Filter to one or more harness ids")
 	.option("--skill <slug>", "Apply only one or more skill slugs")
+	.option("--project <path>", "Apply the declared entrypoints for one project")
+	.option("--strict-visibility", "Refuse unclassified source visibility")
 	.option(
 		"--home <path>",
 		"Override HOME for skill-sync state and harness resolution",
@@ -1218,11 +1413,344 @@ cli
 	.option("--projects-root <path>", "Override configured projects root")
 	.option("--harness <id>", "Filter to one or more harness ids")
 	.option("--skill <slug>", "Apply only one or more skill slugs")
+	.option("--project <path>", "Apply the declared entrypoints for one project")
+	.option("--strict-visibility", "Refuse unclassified source visibility")
 	.option(
 		"--home <path>",
 		"Override HOME for skill-sync state and harness resolution",
 	)
 	.action(runExecute);
+
+cli
+	.command("audit <action>", "Audit visibility and progressive-disclosure coverage")
+	.option("--json", "Output JSON")
+	.option(
+		"--write-baseline <path>",
+		"Persist a value-blind inventory ledger for migration coverage proof",
+	)
+	.option("--baseline <path>", "Compare coverage against a baseline ledger")
+	.option("--projects-root <path>", "Override configured projects root")
+	.option(
+		"--home <path>",
+		"Override HOME for skill-sync state and harness resolution",
+	)
+	.action((action: string, options: GlobalOptions) => {
+		if (action !== "visibility") {
+			throw new Error(`Unknown audit action: ${action}`);
+		}
+		withRuntime(options, (runtime) => {
+			const config = loadConfig(runtime);
+			config.projectsRoots = resolveProjectsOverride(
+				config.projectsRoots,
+				options,
+			);
+			const harnesses = resolveHarnesses(runtime.homeDir, config);
+			const { skills, sourceDiagnostics } = discoverSkillSet(config, harnesses);
+			const report = buildVisibilityReport(
+				skills,
+				discoverProjectManifests(config),
+				loadConfiguredBaseline(
+					options.baseline || config.visibility.baselinePath,
+				),
+				config.visibility,
+			);
+			const output = {
+				...report,
+				sourceDiagnostics,
+			};
+			if (options.writeBaseline) {
+				writeJsonFile(
+					resolvePath(options.writeBaseline),
+					createVisibilityBaseline(skills),
+				);
+			}
+			if (options.json) {
+				print(output as unknown as JsonValue, true);
+			} else {
+				console.log("Visibility audit");
+				console.log(
+					`- skills: ${report.summary.totalSkills} total; ${report.summary.global} global, ${report.summary.project} project, ${report.summary.routed} routed, ${report.summary.unclassified} unclassified`,
+				);
+				console.log(
+					`- global index: ${report.globalBudget.characters} characters, ~${report.globalBudget.estimatedTokens} tokens`,
+				);
+				console.log(
+					`- coverage: ${report.summary.coverageReachable}/${report.summary.coverageTotal} (${report.summary.coveragePercent}%)`,
+				);
+				console.log(
+					`- projects: ${report.summary.projectManifests} manifest(s)`,
+				);
+			}
+			if (
+				report.summary.unclassified > 0 ||
+				report.summary.coverageReachable < report.summary.coverageTotal ||
+				sourceDiagnostics.errors.length > 0 ||
+				report.diagnostics.errors.length > 0
+			) {
+				setExitCode(sourceDiagnostics.errors.length > 0 ? 3 : 2);
+			}
+		});
+	});
+
+cli
+	.command(
+		"baseline <action> [path]",
+		"Capture, configure, or inspect the visibility coverage baseline",
+	)
+	.option("--json", "Output JSON")
+	.option("--projects-root <path>", "Override configured projects root")
+	.option(
+		"--home <path>",
+		"Override HOME for skill-sync state and harness resolution",
+	)
+	.action((action: string, path: string | undefined, options: GlobalOptions) => {
+		withRuntime(options, (runtime) => {
+			const config = loadConfig(runtime);
+			if (action === "show") {
+				const baselinePath = config.visibility.baselinePath;
+				print(
+					{
+						schemaVersion: 1,
+						baselinePath,
+						baseline: loadConfiguredBaseline(baselinePath),
+					} as unknown as JsonValue,
+					Boolean(options.json),
+				);
+				return;
+			}
+			if (action === "set") {
+				if (!path) throw new Error("baseline set requires a path");
+				const next = setVisibilityBaseline(runtime, resolvePath(path));
+				print(next as unknown as JsonValue, Boolean(options.json));
+				return;
+			}
+			if (action !== "capture") {
+				throw new Error(`Unknown baseline action: ${action}`);
+			}
+			const baselinePath = resolvePath(
+				path || `${runtime.stateDir}/visibility-baseline.json`,
+			);
+			config.projectsRoots = resolveProjectsOverride(
+				config.projectsRoots,
+				options,
+			);
+			const harnesses = resolveHarnesses(runtime.homeDir, config);
+			const { skills } = discoverSkillSet(config, harnesses);
+			const baseline = createVisibilityBaseline(skills);
+			writeJsonFile(baselinePath, baseline);
+			setVisibilityBaseline(runtime, baselinePath);
+			print(
+				{
+					schemaVersion: 1,
+					baselinePath,
+					skills: baseline.skills.length,
+					capturedAt: baseline.capturedAt,
+				} as unknown as JsonValue,
+				Boolean(options.json),
+			);
+		});
+	});
+
+cli
+	.command(
+		"classify <action> <ledger>",
+		"Plan or apply a hash-guarded visibility classification ledger",
+	)
+	.option("--json", "Output JSON")
+	.option("--execute", "Write metadata changes (plan is the default)")
+	.option(
+		"--rewrite-source-prefix <mapping>",
+		"Rewrite FROM=TO source prefixes when applying in an isolated worktree",
+	)
+	.action(
+		(
+			action: string,
+			ledger: string,
+			options: GlobalOptions & {
+				execute?: boolean;
+				rewriteSourcePrefix?: string;
+			},
+		) => {
+			if (action !== "plan" && action !== "apply" && action !== "lock") {
+				throw new Error(`Unknown classify action: ${action}`);
+			}
+			if (action === "lock") {
+				const locked = lockClassificationLedger(resolvePath(ledger));
+				print(
+					{
+						schemaVersion: 1,
+						ledgerPath: resolvePath(ledger),
+						entries: locked.entries.length,
+					} as unknown as JsonValue,
+					Boolean(options.json),
+				);
+				return;
+			}
+			const execute = action === "apply" && Boolean(options.execute);
+			let sourceRewrite: { from: string; to: string } | undefined;
+			if (options.rewriteSourcePrefix) {
+				const separator = options.rewriteSourcePrefix.indexOf("=");
+				if (separator < 1) {
+					throw new Error("--rewrite-source-prefix must be FROM=TO");
+				}
+				sourceRewrite = {
+					from: options.rewriteSourcePrefix.slice(0, separator),
+					to: options.rewriteSourcePrefix.slice(separator + 1),
+				};
+			}
+			const report = applyClassificationLedger(
+				resolvePath(ledger),
+				!execute,
+				sourceRewrite,
+			);
+			print(
+				options.json
+					? classificationReportToJson(report)
+					: [
+							`Classification ${execute ? "apply" : "plan"}`,
+							`- entries: ${report.summary.entries}`,
+							`- changes: ${report.summary.changes}`,
+							`- unchanged: ${report.summary.unchanged}`,
+							`- errors: ${report.summary.errors}`,
+						].join("\n"),
+				Boolean(options.json),
+			);
+			if (report.summary.errors > 0) setExitCode(3);
+		},
+	);
+
+cli
+	.command(
+		"project <action> [entrypoint]",
+		"Manage or inspect one project's declared skill entrypoints",
+	)
+	.option("--json", "Output JSON")
+	.option("--dry-run", "Show changes without mutating")
+	.option("--root <path>", "Project root (default: current git repository)")
+	.option("--projects-root <path>", "Override configured projects root")
+	.option(
+		"--harness <id>",
+		"Project adapter to validate (agents, pi, or codex; others fail closed)",
+	)
+	.option(
+		"--home <path>",
+		"Override HOME for skill-sync state and harness resolution",
+	)
+	.action(
+		(
+			action: string,
+			entrypoint: string | undefined,
+			options: GlobalOptions & { root?: string },
+		) => {
+			withRuntime(options, (runtime) => {
+				const projectRoot = findProjectRoot(options.root || process.cwd());
+				const current = loadProjectManifest(projectRoot);
+				if (action === "add" || action === "remove") {
+					if (!entrypoint) {
+						throw new Error(`project ${action} requires an entrypoint slug`);
+					}
+					const slug = slugify(entrypoint);
+					const next = new Set(current.manifest?.entrypoints || []);
+					if (action === "add") next.add(slug);
+					else next.delete(slug);
+					const manifest = {
+						version: 1 as const,
+						entrypoints: [...next].sort(),
+					};
+					if (!options.dryRun) {
+						writeProjectManifest(projectRoot, manifest.entrypoints);
+					}
+					print(
+						{
+							schemaVersion: 1,
+							projectRoot,
+							manifestPath: current.manifestPath,
+							manifest,
+							dryRun: Boolean(options.dryRun),
+						} as unknown as JsonValue,
+						Boolean(options.json),
+					);
+					return;
+				}
+				if (action !== "doctor") {
+					throw new Error(`Unknown project action: ${action}`);
+				}
+				const config = loadConfig(runtime);
+				config.projectsRoots = resolveProjectsOverride(
+					config.projectsRoots,
+					options,
+				);
+				const harnesses = resolveHarnesses(runtime.homeDir, config);
+				const { skills } = discoverSkillSet(config, harnesses);
+				const plan = buildProjectSyncPlan(current, skills, loadState(runtime), {
+					requestedAdapters: normalizeList(options.harness),
+				});
+				if (options.json) {
+					print(
+						{
+							schemaVersion: 1,
+							planHash: plan.planHash,
+							manifest: projectManifestToJson(current),
+							plan,
+						} as unknown as JsonValue,
+						true,
+					);
+				} else {
+					console.log(`Project: ${projectRoot}`);
+					console.log(renderPlan(plan, { verbose: true, includeOrphans: false }));
+				}
+				setExitCode(hasConflicts(plan) ? 3 : hasDrift(plan) ? 2 : 0);
+			});
+		},
+	);
+
+cli
+	.command("resolve <slug>", "Resolve a canonical skill and its route parents")
+	.option("--json", "Output JSON")
+	.option("--projects-root <path>", "Override configured projects root")
+	.option(
+		"--home <path>",
+		"Override HOME for skill-sync state and harness resolution",
+	)
+	.action((rawSlug: string, options: GlobalOptions) => {
+		withRuntime(options, (runtime) => {
+			const config = loadConfig(runtime);
+			config.projectsRoots = resolveProjectsOverride(
+				config.projectsRoots,
+				options,
+			);
+			const harnesses = resolveHarnesses(runtime.homeDir, config);
+			const { skills } = discoverSkillSet(config, harnesses);
+			const slug = slugify(rawSlug);
+			const matches = skills.filter((skill) => skill.canonicalSlug === slug);
+			if (matches.length !== 1) {
+				throw new Error(
+					matches.length === 0
+						? `No discovered skill matches ${slug}`
+						: `Skill ${slug} is ambiguous across ${matches.length} sources`,
+				);
+			}
+			const skill = matches[0];
+			if (!skill) throw new Error(`No discovered skill matches ${slug}`);
+			const routedFrom = skills
+				.filter((candidate) => candidate.routes.includes(slug))
+				.map((candidate) => candidate.canonicalSlug)
+				.sort();
+			print(
+				{
+					schemaVersion: 1,
+					slug,
+					visibility: skill.visibility,
+					skillFilePath: skill.skillFilePath,
+					sourcePath: skill.sourcePath,
+					routes: skill.routes,
+					routedFrom,
+					deprecatedBy: skill.deprecatedBy,
+				} as unknown as JsonValue,
+				Boolean(options.json),
+			);
+		});
+	});
 
 cli
 	.command("sources", "List discovered source skills")
@@ -1375,13 +1903,63 @@ cli
 	);
 
 cli
-	.command("config <action>", "Config commands: init")
+	.command("config <action>", "Config commands: init, strict-visibility, visibility-budget")
 	.option("--json", "Output JSON")
+	.option("--enable", "Enable the selected policy")
+	.option("--disable", "Disable the selected policy")
+	.option("--global <tokens>", "Maximum global skill-index tokens")
+	.option("--project <tokens>", "Maximum project entrypoint-index tokens")
 	.option(
 		"--home <path>",
 		"Override HOME for skill-sync state and harness resolution",
 	)
-	.action((action: string, options: GlobalOptions) => {
+	.action((action: string, options: GlobalOptions & { enable?: boolean; disable?: boolean; global?: string; project?: string }) => {
+		if (action === "strict-visibility") {
+			if (options.enable && options.disable) {
+				throw new Error("config strict-visibility cannot combine --enable and --disable");
+			}
+			withRuntime(options, (runtime) => {
+				const strict = !options.disable;
+				const config = setStrictVisibility(runtime, strict);
+				print(
+					{
+						schemaVersion: 1,
+						strictVisibility: config.visibility.strict === true,
+						configPath: runtime.configPath,
+					} as unknown as JsonValue,
+					Boolean(options.json),
+				);
+			});
+			return;
+		}
+		if (action === "visibility-budget") {
+			const parseBudget = (value: string | undefined, label: string) => {
+				if (value === undefined) return undefined;
+				const parsed = Number(value);
+				if (!Number.isInteger(parsed) || parsed <= 0) {
+					throw new Error(`${label} visibility budget must be a positive integer`);
+				}
+				return parsed;
+			};
+			withRuntime(options, (runtime) => {
+				const global = parseBudget(options.global, "global");
+				const project = parseBudget(options.project, "project");
+				if (global === undefined && project === undefined) {
+					throw new Error("config visibility-budget requires --global and/or --project");
+				}
+				const config = setVisibilityBudgets(runtime, { global, project });
+				print(
+					{
+						schemaVersion: 1,
+						maxGlobalIndexTokens: config.visibility.maxGlobalIndexTokens,
+						maxProjectIndexTokens: config.visibility.maxProjectIndexTokens,
+						configPath: runtime.configPath,
+					} as unknown as JsonValue,
+					Boolean(options.json),
+				);
+			});
+			return;
+		}
 		if (action !== "init") {
 			throw new Error(`Unknown config action: ${action}`);
 		}
@@ -1613,7 +2191,7 @@ cli
 			}
 
 			if (summary.broken > 0 && (options.dryRun || summary.skipped > 0)) {
-				process.exit(2);
+				setExitCode(2);
 			}
 		});
 	});
@@ -1660,7 +2238,7 @@ cli
 			}
 
 			if (result.skipped.length > 0) {
-				process.exit(2);
+				setExitCode(2);
 			}
 		});
 	});

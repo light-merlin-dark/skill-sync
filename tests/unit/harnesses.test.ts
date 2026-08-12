@@ -55,3 +55,13 @@ test("prefers the XDG opencode skills root over the legacy dotdir when both exis
 		`${homeDir}/.config/opencode/skills`,
 	);
 });
+
+test("declares Hermes category-based nested skill discovery", () => {
+	const { homeDir } = makeFakeProjectsRoot();
+	makeHarnessRoot(homeDir, ".hermes/skills");
+
+	const harnesses = resolveHarnesses(homeDir, makeConfig());
+	expect(
+		harnesses.find((harness) => harness.id === "hermes")?.nestedSkillLayout,
+	).toBe("category");
+});

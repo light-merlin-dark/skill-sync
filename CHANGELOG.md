@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Implement constitutional progressive disclosure end to end: standards-based
+  `global`/`project`/`routed` metadata, project manifests and Pi/Codex
+  projection, route/deprecation resolution, baseline coverage, index budgets,
+  hash-guarded classification ledgers, deterministic plan hashes, and explicit
+  failure for unsupported project adapters.
+- Add persistent strict visibility and configurable global/project token
+  ceilings. Strict sync now excludes unclassified sources and blocks
+  unclassified or over-budget plans before mutation, preventing future syncs
+  from recreating the flat global namespace.
+- Add `audit visibility`, `baseline`, `classify`, `project`, and `resolve`
+  command families, with complete schema-versioned JSON beyond 64 KiB.
+- Model Hermes' harness-native category layout explicitly so valid bundled
+  capabilities are not mistaken for malformed flat installs.
 - Establish `CONSTITUTION.md` as the governing progressive-disclosure design:
   global capability entrypoints, explicitly declared project entrypoints, and
   route-only specialist skills are separate from harness install targeting.

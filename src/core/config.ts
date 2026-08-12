@@ -12,6 +12,10 @@ function getDefaultConfig(homeDir: string): Config {
 	return {
 		version: 1,
 		projectsRoots: [join(homeDir, "_dev")],
+		visibility: {
+			maxGlobalIndexTokens: 4_000,
+			maxProjectIndexTokens: 500,
+		},
 		discovery: {
 			ignorePathPrefixes: [],
 			preferPathPrefixes: [],
@@ -43,6 +47,16 @@ export function loadConfig(runtime: RuntimeContext): Config {
 		projectsRoots: (config.projectsRoots || []).map((root) =>
 			expandHomePath(root, runtime.homeDir),
 		),
+		visibility: {
+			baselinePath: config.visibility?.baselinePath
+				? expandHomePath(config.visibility.baselinePath, runtime.homeDir)
+				: undefined,
+			strict: config.visibility?.strict === true,
+			maxGlobalIndexTokens:
+				config.visibility?.maxGlobalIndexTokens ?? 4_000,
+			maxProjectIndexTokens:
+				config.visibility?.maxProjectIndexTokens ?? 500,
+		},
 		discovery: {
 			ignorePathPrefixes: (config.discovery?.ignorePathPrefixes || []).map(
 				(path) => expandHomePath(path, runtime.homeDir),
@@ -58,6 +72,43 @@ export function loadConfig(runtime: RuntimeContext): Config {
 		},
 		aliases: config.aliases || {},
 	};
+}
+
+export function setVisibilityBaseline(
+	runtime: RuntimeContext,
+	baselinePath: string,
+): Config {
+	const config = loadConfig(runtime);
+	config.visibility.baselinePath = resolve(
+		expandHomePath(baselinePath, runtime.homeDir),
+	);
+	saveConfig(runtime, config);
+	return config;
+}
+
+export function setStrictVisibility(
+	runtime: RuntimeContext,
+	strict: boolean,
+): Config {
+	const config = loadConfig(runtime);
+	config.visibility.strict = strict;
+	saveConfig(runtime, config);
+	return config;
+}
+
+export function setVisibilityBudgets(
+	runtime: RuntimeContext,
+	budgets: { global?: number; project?: number },
+): Config {
+	const config = loadConfig(runtime);
+	if (budgets.global !== undefined) {
+		config.visibility.maxGlobalIndexTokens = budgets.global;
+	}
+	if (budgets.project !== undefined) {
+		config.visibility.maxProjectIndexTokens = budgets.project;
+	}
+	saveConfig(runtime, config);
+	return config;
 }
 
 function saveConfig(runtime: RuntimeContext, config: Config): void {

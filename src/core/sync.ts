@@ -26,6 +26,7 @@ import {
 	directoriesMatchMaterialized,
 	ensureDir,
 	inspectEntry,
+	hashContent,
 	nowIso,
 	pathOwnsEntry,
 	removePath,
@@ -132,6 +133,53 @@ export function buildSyncPlan(
 					: "stale state entry will be pruned",
 			});
 			plannedDestinations.add(entryPath);
+			changes += 1;
+		}
+
+		// Once a project/routed skill has a canonical source outside this harness,
+		// remove an exact legacy startup projection even if it predates SkillSync
+		// state tracking. This is intentionally content-gated: divergent unmanaged
+		// directories remain visible as orphans/conflicts for human review.
+		for (const skill of options.targeted ? [] : skills) {
+			if (skill.visibility !== "project" && skill.visibility !== "routed") {
+				continue;
+			}
+			if (!shouldInstallOnHarnessBase(skill, harnessPlan.harness.id)) {
+				continue;
+			}
+			const installName = resolveInstallName(
+				skill,
+				harnessPlan.harness.id,
+				config,
+			);
+			const destinationPath = join(harnessPlan.harness.rootPath, installName);
+			if (
+				plannedDestinations.has(destinationPath) ||
+				normalizeComparablePath(destinationPath) ===
+					normalizeComparablePath(skill.sourcePath)
+			) {
+				continue;
+			}
+			const compatibility = inspectCompatibility(
+				resolveInstallMode(harnessPlan.harness.id, options),
+				destinationPath,
+				skill,
+				installName,
+			);
+			if (compatibility !== "matching-skill") continue;
+			harnessPlan.entries.push({
+				harnessId: harnessPlan.harness.id,
+				harnessRoot: harnessPlan.harness.rootPath,
+				installName,
+				destinationPath,
+				action: "remove-obsolete",
+				sourcePath: skill.sourcePath,
+				sourceSkillFilePath: skill.skillFilePath,
+				sourceKey: skill.sourceKey,
+				message:
+					"matching legacy startup projection will be removed; canonical source remains route-reachable",
+			});
+			plannedDestinations.add(destinationPath);
 			changes += 1;
 		}
 
@@ -243,7 +291,7 @@ export function buildSyncPlan(
 
 	const harnessDiagnostics = findHarnessTraversalDiagnostics(harnesses);
 
-	return {
+	const plan = {
 		harnesses: harnessPlans,
 		changes,
 		conflicts,
@@ -252,6 +300,30 @@ export function buildSyncPlan(
 		harnessDiagnostics,
 		orphanSkills: orphanSkills.length ? orphanSkills : undefined,
 	};
+	const planHash = hashContent(
+		JSON.stringify({
+			kind: "user-global",
+			skills: skills
+				.map((skill) => ({
+					slug: skill.canonicalSlug,
+					sourcePath: skill.sourcePath,
+					contentHash: skill.contentHash,
+					visibility: skill.visibility,
+					routes: skill.routes,
+					deprecatedBy: skill.deprecatedBy,
+					installOn: skill.installHarnessIds,
+				}))
+				.sort((a, b) => a.slug.localeCompare(b.slug)),
+			harnesses: harnesses.map((harness) => ({
+				id: harness.id,
+				rootPath: harness.rootPath,
+				kind: harness.kind,
+			})),
+			aliases: config.aliases,
+			plan,
+		}),
+	);
+	return { schemaVersion: 1, planHash, ...plan };
 }
 
 function buildPlannedEntry(
@@ -551,6 +623,9 @@ function shouldInstallOnHarness(
 	harnessId: string,
 	options: SyncPlanOptions,
 ): boolean {
+	if (skill.visibility === "project" || skill.visibility === "routed") {
+		return false;
+	}
 	const baseAllowed = shouldInstallOnHarnessBase(skill, harnessId);
 	const bridgeCandidate = shouldRouteThroughCodexVisibilityBridge(
 		skill,
@@ -644,7 +719,10 @@ export function applySyncPlan(
 			if (dryRun) {
 				continue;
 			}
-			if (entry.action === "remove-managed") {
+			if (
+				entry.action === "remove-managed" ||
+				entry.action === "remove-obsolete"
+			) {
 				removePath(entry.destinationPath);
 				delete nextState.managedEntries[entry.destinationPath];
 				continue;
@@ -756,7 +834,8 @@ export function hasDrift(plan: SyncPlan): boolean {
 			(diagnostic) =>
 				diagnostic.kind === "invalid-frontmatter" ||
 				diagnostic.kind === "repo-root-pollution" ||
-				diagnostic.kind === "fanout-high",
+				diagnostic.kind === "fanout-high" ||
+				diagnostic.kind === "missing-project-guidance",
 		)
 	);
 }
@@ -927,6 +1006,13 @@ export function findHarnessTraversalDiagnostics(
 						});
 					}
 				}
+			}
+			if (harness.nestedSkillLayout === "category") {
+				// Hermes owns a documented category/skill layout and exposes those
+				// descendants intentionally. Treating every category as a malformed
+				// flat skill creates false hazards and invites destructive cleanup of
+				// harness-native capabilities.
+				continue;
 			}
 			const scan = scanHarnessEntryForSkillTraversal(entryPath);
 			if (scan.descendantSkillFiles.length === 0 && scan.errors.length === 0) {

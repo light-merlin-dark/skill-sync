@@ -129,6 +129,67 @@ test("repairs an unmanaged directory with matching SKILL.md into a symlinked ins
 	expect(plan.harnesses[0]?.entries[0]?.action).toBe("repair");
 });
 
+test("plans removal of an exact legacy projection for a routed canonical source", () => {
+	const { homeDir } = makeFakeProjectsRoot();
+	tempPaths.push(homeDir);
+	const skillText =
+		"---\nname: stack-admin\ndescription: Stack admin\nmetadata:\n  skill-sync.visibility: routed\n---\n\n# Stack Admin\n";
+	const sourcePath = join(homeDir, "projects", "stack", "skills", "stack-admin");
+	const harnessRoot = join(homeDir, ".agents", "skills");
+	const destinationPath = join(harnessRoot, "stack-admin");
+	writeText(join(sourcePath, "SKILL.md"), skillText);
+	writeText(join(destinationPath, "SKILL.md"), skillText);
+	const harness: HarnessDefinition = {
+		id: "agents",
+		label: "Agents",
+		rootPath: harnessRoot,
+		kind: "built-in",
+		detected: true,
+		enabled: true,
+	};
+	const skill = {
+		sourceKey: sourcePath,
+		sourcePath,
+		skillFilePath: join(sourcePath, "SKILL.md"),
+		repoPath: join(homeDir, "projects", "stack"),
+		projectsRoot: join(homeDir, "projects"),
+		sourceType: "nested",
+		metadataName: "stack-admin",
+		description: "Stack admin",
+		frontmatterIssues: [],
+		visibility: "routed",
+		visibilityExplicit: true,
+		routes: [],
+		canonicalSlug: "stack-admin",
+		contentHash: "hash",
+	} as DiscoveredSkill;
+	const config = {
+		version: 1,
+		projectsRoots: [join(homeDir, "projects")],
+		visibility: {},
+		discovery: {
+			ignorePathPrefixes: [],
+			preferPathPrefixes: [],
+			includeHarnessRoots: true,
+			preferPrimaryWorktree: true,
+		},
+		harnesses: { custom: [] },
+		aliases: {},
+	} satisfies Config;
+	const plan = buildSyncPlan(
+		[skill],
+		[harness],
+		config,
+		{ version: 1, managedEntries: {} },
+	);
+	expect(plan.harnesses[0]?.entries).toContainEqual(
+		expect.objectContaining({
+			destinationPath,
+			action: "remove-obsolete",
+		}),
+	);
+});
+
 test("repairs repo-root symlink installs when nested skills match the canonical source", () => {
 	const { homeDir } = makeFakeProjectsRoot();
 	tempPaths.push(homeDir);

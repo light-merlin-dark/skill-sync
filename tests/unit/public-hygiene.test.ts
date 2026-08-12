@@ -22,6 +22,24 @@ describe("public repository hygiene", () => {
 		expect(tracked.some((file) => file.startsWith("inventory/"))).toBe(false);
 	});
 
+	test("keeps machine-local artifacts out of reachable history", () => {
+		const result = spawnSync(
+			"git",
+			[
+				"rev-list",
+				"HEAD",
+				"--objects",
+				"--",
+				"AGENTS.md",
+				"docs/plan.md",
+				"inventory",
+			],
+			{ cwd: repoRoot, encoding: "utf8" },
+		);
+		expect(result.status).toBe(0);
+		expect(result.stdout.trim()).toBe("");
+	});
+
 	test("contains no absolute user-home paths in public product files", () => {
 		const publicFiles = trackedFiles();
 		const absoluteHome = /(?:\/Users|\/home)\/[A-Za-z0-9._-]+\//;

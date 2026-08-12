@@ -61,6 +61,28 @@ test("fresh config is location-independent and strict by default", () => {
 	});
 });
 
+test("existing configuration retains its explicit roots and visibility mode", () => {
+	const { homeDir, projectsRoot } = makeFakeProjectsRoot();
+	tempPaths.push(homeDir);
+	writeText(
+		join(homeDir, ".skill-sync", "config.json"),
+		JSON.stringify({
+			version: 1,
+			projectsRoots: [projectsRoot],
+			visibility: {
+				maxGlobalIndexTokens: 2_000,
+				maxProjectIndexTokens: 250,
+			},
+		}),
+	);
+
+	const doctor = runCli(repoRoot, ["doctor", "--home", homeDir, "--json"], {});
+	expect(doctor.exitCode).toBe(0);
+	const report = JSON.parse(doctor.stdout.toString());
+	expect(report.summary.strictVisibility).toBe(false);
+	expect(report.summary.globalBudget.estimatedTokens).toBe(0);
+});
+
 test("syncs, backs up, and restores inside a fake home", () => {
 	const { homeDir, projectsRoot } = makeFakeProjectsRoot();
 	tempPaths.push(homeDir);

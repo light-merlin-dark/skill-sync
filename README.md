@@ -15,6 +15,11 @@ Sync local repo-backed agent skills across Codex, Claude Code, Cursor, Gemini, H
 
 `skill-sync` keeps local `SKILL.md` sources installed into agent harnesses using harness-native managed layouts, with drift checks, source-topology diagnostics, conflict detection, and restoreable backups. Most harnesses use thin wrapper directories with a canonical `SKILL.md` symlink; Codex now uses a materialized skill-directory install for Codex-local skills, and shared Codex-visible skills are routed through materialized `~/.agents/skills` bridge entries to avoid duplicate listings in the IDE.
 
+The CLI is tested on macOS and Linux with Node.js 20 or newer. Its paths are
+home-relative or user-configured; it does not assume a maintainer username or
+repository layout. Windows is not currently part of the release matrix because
+managed symlink behavior differs.
+
 ## Why This Exists
 
 `npx skills` is excellent for public and package-based skill workflows.

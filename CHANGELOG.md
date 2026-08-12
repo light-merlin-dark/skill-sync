@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.4.0 (2026-08-12)
+
+- Harden the open-source boundary: remove machine-local inventories and project
+  guidance from Git and package surfaces, replace workstation-specific paths
+  and private fixtures, add public contributor/security policy, and enforce the
+  boundary in CI.
+- Make fresh configuration portable and fail-closed: no implicit source root,
+  strict visibility enabled, and explicit `roots add` onboarding.
+
 - Implement constitutional progressive disclosure end to end: standards-based
   `global`/`project`/`routed` metadata, project manifests and Pi/Codex
   projection, route/deprecation resolution, baseline coverage, index budgets,

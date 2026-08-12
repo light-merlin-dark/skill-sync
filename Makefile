@@ -72,27 +72,39 @@ release:
 		fi; \
 		VERSION=$$(node -e "const fs=require('fs'); console.log(JSON.parse(fs.readFileSync('package.json','utf8')).version)"); \
 		tag="v$$VERSION"; \
-		if npm view @light-merlin-dark/skill-sync@"$$VERSION" version >/dev/null 2>&1; then \
-			echo "ERROR: npm version $$VERSION is already published."; \
-			exit 1; \
-		fi; \
-		echo "Dispatching $$tag from $$head through npm trusted publishing"; \
-		gh workflow run publish.yml --ref main -f version="$$VERSION" -f commit="$$head"; \
-		run_id=""; \
-		for attempt in $$(seq 1 20); do \
-			run_id=$$(gh run list --workflow publish.yml --commit "$$head" --event workflow_dispatch --limit 1 --json databaseId --jq '.[0].databaseId // empty'); \
-			if [ -n "$$run_id" ]; then break; fi; \
-			sleep 2; \
-		done; \
-		if [ -z "$$run_id" ]; then \
-			echo "ERROR: Could not identify the dispatched publish run."; \
-			exit 1; \
-		fi; \
-		gh run watch "$$run_id" --exit-status; \
-		published=$$(npm view @light-merlin-dark/skill-sync@"$$VERSION" version); \
-		if [ "$$published" != "$$VERSION" ]; then \
-			echo "ERROR: Registry verification did not return $$VERSION."; \
-			exit 1; \
+		published=$$(npm view @light-merlin-dark/skill-sync@"$$VERSION" version 2>/dev/null || true); \
+		published_head=$$(npm view @light-merlin-dark/skill-sync@"$$VERSION" gitHead 2>/dev/null || true); \
+		if [ -n "$$published" ]; then \
+			if [ "$$published" != "$$VERSION" ] || [ "$$published_head" != "$$head" ]; then \
+				echo "ERROR: Published $$tag does not identify the current release commit."; \
+				echo "published=$$published published_head=$$published_head local=$$head"; \
+				exit 1; \
+			fi; \
+			echo "npm already serves $$tag from this exact commit; resuming finalization"; \
+		else \
+			echo "Dispatching $$tag from $$head through npm trusted publishing"; \
+			gh workflow run publish.yml --ref main -f version="$$VERSION" -f commit="$$head"; \
+			run_id=""; \
+			for attempt in $$(seq 1 20); do \
+				run_id=$$(gh run list --workflow publish.yml --commit "$$head" --event workflow_dispatch --limit 1 --json databaseId --jq '.[0].databaseId // empty'); \
+				if [ -n "$$run_id" ]; then break; fi; \
+				sleep 2; \
+			done; \
+			if [ -z "$$run_id" ]; then \
+				echo "ERROR: Could not identify the dispatched publish run."; \
+				exit 1; \
+			fi; \
+			gh run watch "$$run_id" --exit-status; \
+			for attempt in $$(seq 1 30); do \
+				published=$$(npm view @light-merlin-dark/skill-sync@"$$VERSION" version 2>/dev/null || true); \
+				published_head=$$(npm view @light-merlin-dark/skill-sync@"$$VERSION" gitHead 2>/dev/null || true); \
+				if [ "$$published" = "$$VERSION" ] && [ "$$published_head" = "$$head" ]; then break; fi; \
+				sleep 2; \
+			done; \
+			if [ "$$published" != "$$VERSION" ] || [ "$$published_head" != "$$head" ]; then \
+				echo "ERROR: Registry verification did not converge on $$tag from $$head."; \
+				exit 1; \
+			fi; \
 		fi; \
 		if git rev-parse "$$tag" >/dev/null 2>&1; then \
 			current=$$(git rev-parse "$$tag"); \

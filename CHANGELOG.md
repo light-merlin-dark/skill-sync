@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Make release finalization resumable after a successful npm publish and poll
+  boundedly for registry propagation before creating the matching tag/release.
+
 ## 0.4.0 (2026-08-12)
 
 - Harden the open-source boundary: remove machine-local inventories and project

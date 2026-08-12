@@ -31,6 +31,18 @@ npm run build
   widen project skills into global installs.
 - Inspect `npm pack --dry-run --json` before a release.
 
+## Maintainer releases
+
+Release preparation and publication are separate. Commit the intended package
+version and changelog on `main`; do not let release automation manufacture or
+commit source changes. `make release` then requires local `main` to match
+`origin/main`, dispatches the exact commit to `.github/workflows/publish.yml`,
+waits for the trusted-publishing gate, verifies the public registry version, and
+only then creates the matching Git tag and GitHub release.
+
+The npm package owner must configure that workflow as the package's trusted
+GitHub publisher. Do not add an npm write token to repository secrets.
+
 The normative behavior is defined in [CONSTITUTION.md](./CONSTITUTION.md).
 
 ## Pull requests

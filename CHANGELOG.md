@@ -10,6 +10,8 @@
   boundary in CI.
 - Make fresh configuration portable and fail-closed: no implicit source root,
   strict visibility enabled, and explicit `roots add` onboarding.
+- Replace workstation-token publication with an exact-version, exact-commit
+  GitHub OIDC workflow and source-frozen release orchestration.
 
 - Implement constitutional progressive disclosure end to end: standards-based
   `global`/`project`/`routed` metadata, project manifests and Pi/Codex

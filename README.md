@@ -466,13 +466,18 @@ bun run build
 
 ## Release
 
-Patch release:
+Prepare and commit the intended version and changelog on `main`, then run:
 
 ```bash
 make release
 ```
 
-This bumps the patch version, moves the `## Unreleased` notes into the new versioned changelog section, runs lint/test/build, publishes to npm, commits the release, pushes `main`, tags the release, and creates or updates the GitHub release.
+The release target requires a clean local `main` that exactly matches
+`origin/main`. It dispatches the exact version and commit to the manual GitHub
+publish workflow, which runs the complete gate and publishes through npm trusted
+publishing without a long-lived npm token. After registry verification succeeds,
+the target creates the matching Git tag and GitHub release. Direct local npm
+publishing is deliberately disabled.
 
 ## Positioning
 

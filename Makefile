@@ -14,8 +14,8 @@ help:
 	@echo ""
 	@echo "Release:"
 	@echo "  make pre-publish       - Lint, test, and build"
-	@echo "  make publish           - Publish to npm"
-	@echo "  make release           - Auto-bump patch, finalize changelog, lint/test/build, publish, commit, tag, push, and create/update GitHub release"
+	@echo "  make publish           - Refuse direct local publishing; releases use GitHub OIDC"
+	@echo "  make release           - Publish exact clean main through GitHub OIDC, then tag and create the GitHub release"
 
 install:
 	npm install
@@ -44,16 +44,13 @@ pre-publish:
 	bun run build
 
 publish:
-	npm publish --access public
+	@echo "ERROR: Direct local npm publishing is disabled. Prepare a clean release commit and run make release."
+	@exit 1
 
 release:
 	@set -euo pipefail; \
 		if ! command -v gh >/dev/null 2>&1; then \
 			echo "ERROR: gh (GitHub CLI) not found in PATH."; \
-			exit 1; \
-		fi; \
-		if ! npm whoami >/dev/null 2>&1; then \
-			echo "ERROR: npm publish credentials not available."; \
 			exit 1; \
 		fi; \
 		branch=$$(git rev-parse --abbrev-ref HEAD); \
@@ -62,21 +59,16 @@ release:
 			exit 1; \
 		fi; \
 		if [ -n "$$(git status --porcelain)" ]; then \
-			old_version=$$(node -e "const fs=require('fs'); console.log(JSON.parse(fs.readFileSync('package.json','utf8')).version)"); \
-			new_version=$$(node -e "const fs=require('fs'); const pkg=JSON.parse(fs.readFileSync('package.json','utf8')); const parts=pkg.version.split('.').map(Number); parts[2] += 1; console.log(parts.join('.'));"); \
-			echo "Preparing release $$old_version -> $$new_version"; \
-			node -e "const fs=require('fs'); const path='package.json'; const pkg=JSON.parse(fs.readFileSync(path,'utf8')); pkg.version='$$new_version'; fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n');"; \
-			node -e "const fs=require('fs'); const path='CHANGELOG.md'; const version='$$new_version'; let text=fs.readFileSync(path,'utf8'); if (!/^## Unreleased$$/m.test(text)) { throw new Error('CHANGELOG.md missing ## Unreleased heading'); } text=text.replace(/^## Unreleased$$/m, '## Unreleased\\n\\n## ' + version); fs.writeFileSync(path, text);"; \
-			bun run lint; \
-			bun run test; \
-			bun run build; \
-			git add -A; \
-			git commit -m "Release skill-sync v$$new_version"; \
-		else \
-			echo "Working tree clean; releasing existing HEAD"; \
-			bun run lint; \
-			bun run test; \
-			bun run build; \
+			echo "ERROR: Release source must already be committed and clean."; \
+			exit 1; \
+		fi; \
+		git fetch origin main --tags; \
+		head=$$(git rev-parse HEAD); \
+		remote=$$(git rev-parse origin/main); \
+		if [ "$$head" != "$$remote" ]; then \
+			echo "ERROR: Local main must exactly match origin/main."; \
+			echo "local=$$head remote=$$remote"; \
+			exit 1; \
 		fi; \
 		VERSION=$$(node -e "const fs=require('fs'); console.log(JSON.parse(fs.readFileSync('package.json','utf8')).version)"); \
 		tag="v$$VERSION"; \
@@ -84,12 +76,26 @@ release:
 			echo "ERROR: npm version $$VERSION is already published."; \
 			exit 1; \
 		fi; \
-		npm publish --access public; \
-		git push origin HEAD; \
-		git fetch --tags origin || true; \
+		echo "Dispatching $$tag from $$head through npm trusted publishing"; \
+		gh workflow run publish.yml --ref main -f version="$$VERSION" -f commit="$$head"; \
+		run_id=""; \
+		for attempt in $$(seq 1 20); do \
+			run_id=$$(gh run list --workflow publish.yml --commit "$$head" --event workflow_dispatch --limit 1 --json databaseId --jq '.[0].databaseId // empty'); \
+			if [ -n "$$run_id" ]; then break; fi; \
+			sleep 2; \
+		done; \
+		if [ -z "$$run_id" ]; then \
+			echo "ERROR: Could not identify the dispatched publish run."; \
+			exit 1; \
+		fi; \
+		gh run watch "$$run_id" --exit-status; \
+		published=$$(npm view @light-merlin-dark/skill-sync@"$$VERSION" version); \
+		if [ "$$published" != "$$VERSION" ]; then \
+			echo "ERROR: Registry verification did not return $$VERSION."; \
+			exit 1; \
+		fi; \
 		if git rev-parse "$$tag" >/dev/null 2>&1; then \
 			current=$$(git rev-parse "$$tag"); \
-			head=$$(git rev-parse HEAD); \
 			if [ "$$current" != "$$head" ]; then \
 				echo "ERROR: Tag $$tag already exists but points to a different commit."; \
 				echo "tag=$$current head=$$head"; \
@@ -99,14 +105,12 @@ release:
 			git tag -a "$$tag" -m "$$tag"; \
 			git push origin "$$tag"; \
 		fi; \
-		notes_file=$$(mktemp); \
-		awk -v v="$$VERSION" 'BEGIN{p=0} $$0 ~ "^##[[:space:]]*"v"[[:space:]]*$$" {p=1;next} p && /^##[[:space:]]*/{exit} p{print}' CHANGELOG.md > "$$notes_file"; \
-		if [ ! -s "$$notes_file" ]; then echo "Release $$tag" > "$$notes_file"; fi; \
+		notes=$$(awk -v v="$$VERSION" 'BEGIN{p=0} $$0 ~ "^##[[:space:]]*"v"[[:space:]]*" {p=1;next} p && /^##[[:space:]]*/{exit} p{print}' CHANGELOG.md); \
+		if [ -z "$$notes" ]; then notes="Release $$tag"; fi; \
 		if gh release view "$$tag" >/dev/null 2>&1; then \
 			echo "Updating GitHub release $$tag"; \
-			gh release edit "$$tag" --notes-file "$$notes_file" --title "$$tag"; \
+			gh release edit "$$tag" --notes "$$notes" --title "$$tag"; \
 		else \
 			echo "Creating GitHub release $$tag"; \
-			gh release create "$$tag" --notes-file "$$notes_file" --title "$$tag" --target main; \
-		fi; \
-		rm -f "$$notes_file"
+			gh release create "$$tag" --notes "$$notes" --title "$$tag" --target "$$head"; \
+		fi

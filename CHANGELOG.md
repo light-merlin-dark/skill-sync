@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Establish `CONSTITUTION.md` as the governing progressive-disclosure design:
+  global capability entrypoints, explicitly declared project entrypoints, and
+  route-only specialist skills are separate from harness install targeting.
+  The document records the measured Pi startup cost and specifies the project
+  manifest, visibility metadata, resolver, migration gates, and Stack pilot.
 - Harden frontmatter validation to the Agent Skills spec: skills missing the required `description:` are flagged as `invalid skill metadata` instead of silently passing, and `name:` is checked against `^[a-z0-9]+(?:-[a-z0-9]+)*$` (lowercase a-z, 0-9, hyphens, max 64 chars, no leading/trailing/consecutive hyphens), so uppercase or mixed-case names like `CoolifyHelper` or `Manager` are caught before they reach harnesses that reject them.
 - Add built-in **Kimi Code** harness (`~/.kimi-code/skills`) so Kimi Code sessions receive the same managed skill fan-out as other harnesses; previously the root was unmanaged, letting stale real-file copies (e.g. `dev`, `prod`) drift from their canonical `_dev` sources.
 - Tolerate broken symlinks inside materialized skill sources: copy and snapshot walkers now skip a dangling link instead of aborting the entire sync with `ENOENT`.

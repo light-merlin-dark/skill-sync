@@ -22,6 +22,18 @@ Sync local repo-backed agent skills across Codex, Claude Code, Cursor, Gemini, H
 - You use multiple harnesses with different skill roots
 - You want safe sync, dry runs, machine-readable output, and backups before anything gets clobbered
 
+## Constitution
+
+[CONSTITUTION.md](./CONSTITUTION.md) governs skill visibility and progressive
+disclosure. Its central rule is that canonical availability does not imply
+global startup visibility: broad machine capabilities may be global,
+project/ecosystem entrypoints are projected only into declaring repositories,
+and specialist leaves remain route-only until needed.
+
+The visibility-aware project projection described there is the next major
+implementation program. The current release still synchronizes primarily to
+harness-global roots.
+
 ## What It Does
 
 - Scans one or more projects roots such as `~/_dev`

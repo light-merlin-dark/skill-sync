@@ -21,6 +21,7 @@
 	"files": [
 		"dist",
 		"README.md",
+		"CONSTITUTION.md",
 		"LICENSE",
 		"CHANGELOG.md",
 		"skills/skill-sync/SKILL.md"

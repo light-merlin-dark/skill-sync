@@ -7,6 +7,14 @@ description: Sync local repo-backed agent skills across installed harnesses such
 
 Use `skill-sync` as the default interface for local skill-harness maintenance.
 
+## Progressive Disclosure
+
+Before changing whether a skill is global, project-scoped, or routed behind an
+entrypoint, read the repository's `CONSTITUTION.md`. Harness targeting and
+project visibility are separate decisions. Until the visibility-aware project
+plane is implemented, do not work around missing project scope by fanning a
+product or ecosystem skill out globally.
+
 ## Core Workflow
 1. Inspect harness detection and discovered skill sources.
 2. Run a doctor pass before making changes.

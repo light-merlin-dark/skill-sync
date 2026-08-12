@@ -33,7 +33,10 @@ import {
 } from "./utils";
 
 const DIRECTORY_SYMLINK_INSTALL_HARNESSES = new Set<string>();
-const MATERIALIZED_DIRECTORY_INSTALL_HARNESSES = new Set<string>(["codex"]);
+const MATERIALIZED_DIRECTORY_INSTALL_HARNESSES = new Set<string>([
+	"agents",
+	"codex",
+]);
 
 type SyncPlanOptions = {
 	codexVisibilityBridge?: boolean;
@@ -161,7 +164,7 @@ export function buildSyncPlan(
 				continue;
 			}
 			const compatibility = inspectCompatibility(
-				resolveInstallMode(harnessPlan.harness.id, options),
+				resolveInstallMode(harnessPlan.harness.id),
 				destinationPath,
 				skill,
 				installName,
@@ -336,7 +339,7 @@ function buildPlannedEntry(
 ): PlannedEntry {
 	const inspection = inspectEntry(destinationPath);
 	const stateEntry = state.managedEntries[destinationPath];
-	const installMode = resolveInstallMode(harness.id, options);
+	const installMode = resolveInstallMode(harness.id);
 	const sameSource = isDesiredInstallPresent(
 		installMode,
 		destinationPath,
@@ -777,14 +780,8 @@ function usesSkillFileWrapperInstall(installMode: InstallMode): boolean {
 	return installMode === "wrapper-symlink";
 }
 
-function resolveInstallMode(
-	harnessId: string,
-	options: SyncPlanOptions = {},
-): InstallMode {
+function resolveInstallMode(harnessId: string): InstallMode {
 	if (MATERIALIZED_DIRECTORY_INSTALL_HARNESSES.has(harnessId)) {
-		return "materialized-directory";
-	}
-	if (harnessId === "agents" && options.codexVisibilityBridge) {
 		return "materialized-directory";
 	}
 	if (DIRECTORY_SYMLINK_INSTALL_HARNESSES.has(harnessId)) {

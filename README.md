@@ -13,7 +13,7 @@ Sync local repo-backed agent skills across Codex, Claude Code, Cursor, Gemini, H
 [![npm](https://img.shields.io/npm/v/%40light-merlin-dark%2Fskill-sync)](https://www.npmjs.com/package/@light-merlin-dark/skill-sync)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 
-`skill-sync` keeps local `SKILL.md` sources installed into agent harnesses using harness-native managed layouts, with drift checks, source-topology diagnostics, conflict detection, and restoreable backups. Most harnesses use thin wrapper directories with a canonical `SKILL.md` symlink; Codex now uses a materialized skill-directory install for Codex-local skills, and shared Codex-visible skills are routed through materialized `~/.agents/skills` bridge entries to avoid duplicate listings in the IDE.
+`skill-sync` keeps local `SKILL.md` sources installed into agent harnesses using harness-native managed layouts, with drift checks, source-topology diagnostics, conflict detection, and restoreable backups. Most harnesses use thin wrapper directories with a canonical `SKILL.md` symlink; Codex and the shared Agents/Pi root use materialized skill directories, and shared Codex-visible skills are routed through `~/.agents/skills` to avoid duplicate listings in the IDE.
 
 The CLI is tested on macOS and Linux with Node.js 20 or newer. Its paths are
 home-relative or user-configured; it does not assume a maintainer username or
@@ -61,7 +61,7 @@ unclassified sources and configured index-budget violations before mutation.
 - Reports global/project index budgets and baseline reachability
 - Produces schema-versioned, hashed deterministic plans
 - Plans drift without changing anything
-- Syncs managed installs into harnesses using harness-native layouts (`<skill>/SKILL.md` wrapper symlinks for most harnesses, materialized directories for Codex-local installs, plus materialized `agents` bridge installs for shared Codex-visible skills)
+- Syncs managed installs into harnesses using harness-native layouts (`<skill>/SKILL.md` wrapper symlinks for most harnesses, plus stable materialized directories for Codex and the shared Agents/Pi root)
 - Warns when the same skill slug appears multiple times in your configured project roots
 - Collapses harness wrapper mirrors back to canonical sources so duplicate/fanout diagnostics stay focused on real source collisions
 - Flags malformed or missing skill frontmatter before Codex or another harness silently skips indexing a skill, and blocks sync when YAML is invalid
@@ -155,7 +155,7 @@ By default `skill-sync` uses:
 - config and state home: `~/.skill-sync`
 - no implicit project root; add each source root with `skill-sync roots add <path>`
 - strict visibility enabled with 4,000-token global and 500-token project-index ceilings
-- managed installs default to wrapper directories; Codex-local installs use materialized directories, and shared Codex-visible skills are routed through materialized `agents` entries whenever Codex compatibility is requested
+- managed installs default to wrapper directories; Codex and the shared Agents/Pi root use stable materialized directories, and shared Codex-visible skills are routed through the Agents root whenever Codex compatibility is requested
 
 It complements `npx skills`; it does not replace it.
 
@@ -234,8 +234,8 @@ Built-in harness roots currently include:
 | Harness | Global skills root |
 | --- | --- |
 | Codex | `~/.codex/skills` |
-| Agents / Cline / Warp | `~/.agents/skills` |
-| Claude Code | `~/.claude/skills` |
+| Agents / Pi / Cline / Warp | `~/.agents/skills` |
+| Claude / Claude Code | `~/.claude/skills` |
 | Cursor | `~/.cursor/skills` |
 | GitHub Copilot | `~/.copilot/skills` |
 | Gemini CLI | `~/.gemini/skills` |
@@ -243,6 +243,7 @@ Built-in harness roots currently include:
 | Droid / Factory | `~/.factory/skills` |
 | Hermes | `~/.hermes/skills` |
 | KiloCode | `~/.kilocode/skills` |
+| Kimi | `~/.kimi/skills` |
 | Kimi Code | `~/.kimi-code/skills` |
 | OpenCode | `~/.config/opencode/skills` |
 | Plain skills root | `~/.skills` |
@@ -252,6 +253,10 @@ You can add more:
 ```bash
 skill-sync harness add codex-beta ~/.codex-beta/skills
 ```
+
+Harness aliases select their shared physical adapter. For example,
+`skill-sync doctor --harness pi` checks `~/.agents/skills`, which Pi reads
+directly; SkillSync does not create a duplicate Pi-only mirror.
 
 ## Safety Rules
 

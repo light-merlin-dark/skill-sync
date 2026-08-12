@@ -83,6 +83,79 @@ test("existing configuration retains its explicit roots and visibility mode", ()
 	expect(report.summary.globalBudget.estimatedTokens).toBe(0);
 });
 
+test("--harness pi selects the shared Agents adapter without a duplicate mirror", () => {
+	const { homeDir, projectsRoot } = makeFakeProjectsRoot();
+	tempPaths.push(homeDir);
+	const agentsRoot = makeHarnessRoot(homeDir, ".agents/skills");
+	makeNestedSkill(projectsRoot, "dev-control", "dev-control", "dev-control");
+	const args = [
+		"--home",
+		homeDir,
+		"--projects-root",
+		projectsRoot,
+		"--harness",
+		"pi",
+		"--json",
+	];
+
+	const doctor = runCli(repoRoot, ["doctor", ...args], {});
+	expect(doctor.exitCode).toBe(2);
+	const report = JSON.parse(doctor.stdout.toString());
+	expect(report.harnesses).toHaveLength(1);
+	expect(report.harnesses[0].harness).toMatchObject({
+		id: "agents",
+		rootPath: `${homeDir}/.agents/skills`,
+	});
+	expect(report.harnesses[0].entries).toHaveLength(1);
+	expect(report.harnesses[0].entries[0]).toMatchObject({
+		installName: "dev-control",
+		action: "create",
+	});
+
+	const execute = runCli(repoRoot, ["execute", ...args], {});
+	expect(execute.exitCode).toBe(0);
+	const healthy = runCli(repoRoot, ["doctor", ...args], {});
+	expect(healthy.exitCode).toBe(0);
+	expect(
+		JSON.parse(healthy.stdout.toString()).harnesses[0].entries[0],
+	).toMatchObject({
+		installName: "dev-control",
+		action: "ok",
+		installMode: "materialized-directory",
+	});
+
+	const backup = runCli(
+		repoRoot,
+		["backup", "create", "--home", homeDir, "--harness", "pi", "--json"],
+		{},
+	);
+	expect(backup.exitCode).toBe(0);
+	const manifest = JSON.parse(backup.stdout.toString());
+	expect(manifest.harnesses.map((harness: { id: string }) => harness.id)).toEqual(
+		["agents"],
+	);
+	writeText(
+		join(agentsRoot, "stray", "SKILL.md"),
+		"---\nname: stray\ndescription: Stray skill\n---\n",
+	);
+	const restore = runCli(
+		repoRoot,
+		[
+			"backup",
+			"restore",
+			manifest.id,
+			"--home",
+			homeDir,
+			"--harness",
+			"pi",
+			"--json",
+		],
+		{},
+	);
+	expect(restore.exitCode).toBe(0);
+	expect(existsSync(join(agentsRoot, "stray"))).toBe(false);
+});
+
 test("syncs, backs up, and restores inside a fake home", () => {
 	const { homeDir, projectsRoot } = makeFakeProjectsRoot();
 	tempPaths.push(homeDir);

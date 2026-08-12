@@ -15,14 +15,27 @@ const BUILT_IN_HARNESSES: BuiltInHarness[] = [
 		id: "agents",
 		label: "Agents",
 		rootPaths: ["~/.agents/skills"],
-		aliases: ["cline", "warp", "amp", "kimi-cli", "replit", "universal"],
+		aliases: [
+			"pi",
+			"cline",
+			"warp",
+			"amp",
+			"kimi-cli",
+			"replit",
+			"universal",
+		],
 	},
 	{
 		id: "antigravity",
 		label: "Antigravity",
 		rootPaths: ["~/.gemini/antigravity/skills"],
 	},
-	{ id: "claude-code", label: "Claude Code", rootPaths: ["~/.claude/skills"] },
+	{
+		id: "claude-code",
+		label: "Claude Code",
+		rootPaths: ["~/.claude/skills"],
+		aliases: ["claude"],
+	},
 	{ id: "codex", label: "Codex", rootPaths: ["~/.codex/skills"] },
 	{ id: "cursor", label: "Cursor", rootPaths: ["~/.cursor/skills"] },
 	{ id: "droid", label: "Droid", rootPaths: ["~/.factory/skills"] },
@@ -45,6 +58,7 @@ const BUILT_IN_HARNESSES: BuiltInHarness[] = [
 		nestedSkillLayout: "category",
 	},
 	{ id: "kilocode", label: "KiloCode", rootPaths: ["~/.kilocode/skills"] },
+	{ id: "kimi", label: "Kimi", rootPaths: ["~/.kimi/skills"] },
 	{ id: "kimi-code", label: "Kimi Code", rootPaths: ["~/.kimi-code/skills"] },
 	{
 		id: "opencode",
@@ -97,7 +111,14 @@ export function resolveHarnesses(
 	);
 
 	const merged = new Map<string, HarnessDefinition>();
-	for (const harness of [...builtIns, ...custom]) {
+	for (const harness of builtIns) {
+		merged.set(harness.id, harness);
+	}
+	for (const harness of custom) {
+		const builtIn = merged.get(harness.id);
+		if (builtIn?.kind === "built-in" && builtIn.rootPath === harness.rootPath) {
+			continue;
+		}
 		merged.set(harness.id, harness);
 	}
 	return [...merged.values()].sort((a, b) => a.id.localeCompare(b.id));
@@ -111,5 +132,9 @@ export function filterHarnesses(
 		return harnesses.filter((harness) => harness.enabled);
 	}
 	const selected = new Set(selectedIds);
-	return harnesses.filter((harness) => selected.has(harness.id));
+	return harnesses.filter(
+		(harness) =>
+			selected.has(harness.id) ||
+			harness.aliases?.some((alias) => selected.has(alias)),
+	);
 }

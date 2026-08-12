@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 0.4.2 (2026-08-12)
+
+- Recognize Pi as a first-class alias of the shared Agent Skills adapter and
+  `claude` as an alias of Claude Code, so
+  `--harness pi` targets `~/.agents/skills` without creating duplicate skill
+  mirrors. Harness aliases now work for ordinary doctor/execute selection, and
+  the shared Agents/Pi root keeps one stable materialized layout regardless of
+  whether it is selected directly, through Pi, or as Codex's visibility bridge.
+- Add built-in Kimi detection at `~/.kimi/skills`, automatically adopt matching
+  legacy custom registrations, keep the existing Kimi Code adapter distinct,
+  and document the full Pi/Kimi/OpenCode harness surface.
+
 ## 0.4.1 (2026-08-12)
 
 - Make release finalization resumable after a successful npm publish and poll

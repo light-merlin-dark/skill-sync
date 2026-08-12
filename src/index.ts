@@ -173,8 +173,16 @@ function resolveProjectsOverride(
 	return override.length > 0 ? override : configProjectsRoots;
 }
 
-function expandSelectedHarnessIds(selectedIds: string[]): string[] {
+function expandSelectedHarnessIds(
+	selectedIds: string[],
+	harnesses: HarnessDefinition[] = [],
+): string[] {
 	const expanded = new Set(selectedIds);
+	for (const harness of harnesses) {
+		if (harness.aliases?.some((alias) => expanded.has(alias))) {
+			expanded.add(harness.id);
+		}
+	}
 	if (expanded.has("codex")) {
 		expanded.add("agents");
 	}
@@ -187,7 +195,7 @@ function resolveSelectedHarnesses(
 ): HarnessDefinition[] {
 	return filterHarnesses(
 		allHarnesses,
-		expandSelectedHarnessIds(normalizeList(options.harness)),
+		expandSelectedHarnessIds(normalizeList(options.harness), allHarnesses),
 	);
 }
 
@@ -1891,10 +1899,16 @@ cli
 					if (!target) {
 						throw new Error("backup restore requires a backup id");
 					}
+					const config = loadConfig(runtime);
+					const harnesses = resolveHarnesses(runtime.homeDir, config);
+					const selectedIds = expandSelectedHarnessIds(
+						normalizeList(options.harness),
+						harnesses,
+					);
 					const { manifest, nextState } = restoreBackup(
 						runtime,
 						target,
-						expandSelectedHarnessIds(normalizeList(options.harness)),
+						selectedIds,
 						Boolean(options.dryRun),
 						loadState(runtime),
 					);
@@ -1907,9 +1921,6 @@ cli
 					}
 					console.log(
 						`${options.dryRun ? "Would restore" : "Restored"} backup ${manifest.id}`,
-					);
-					const selectedIds = expandSelectedHarnessIds(
-						normalizeList(options.harness),
 					);
 					for (const harness of manifest.harnesses) {
 						if (selectedIds.length > 0 && !selectedIds.includes(harness.id)) {

@@ -474,7 +474,7 @@ test("treats tracked agents materialized skill directories as already synced whe
 	expect(agentsEntry?.action).toBe("ok");
 });
 
-test("repairs tracked agents materialized skill directories back to wrapper installs when codex visibility bridge is disabled", () => {
+test("keeps the shared Agents/Pi root materialized without Codex selection", () => {
 	const { homeDir } = makeFakeProjectsRoot();
 	tempPaths.push(homeDir);
 
@@ -543,8 +543,10 @@ test("repairs tracked agents materialized skill directories back to wrapper inst
 	};
 
 	const plan = buildSyncPlan([skill], [harness], config, state);
-	expect(plan.harnesses[0]?.entries[0]?.installMode).toBe("wrapper-symlink");
-	expect(plan.harnesses[0]?.entries[0]?.action).toBe("repair");
+	expect(plan.harnesses[0]?.entries[0]?.installMode).toBe(
+		"materialized-directory",
+	);
+	expect(plan.harnesses[0]?.entries[0]?.action).toBe("ok");
 });
 
 test("repairs tracked materialized installs when destination SKILL.md is still a symlink", () => {

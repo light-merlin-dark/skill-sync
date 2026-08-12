@@ -552,15 +552,24 @@ function validateVisibilityGraph(skills: DiscoveredSkill[]): SourceDiagnostics {
 			}
 		}
 
-		if (skill.deprecatedBy && !bySlug.has(skill.deprecatedBy)) {
-			errors.push({
-				kind: "missing-deprecation-target",
-				slug: skill.canonicalSlug,
-				severity: "error",
-				resolution: "fix-route-graph",
-				sourcePaths: [skill.sourcePath],
-				message: `deprecated replacement ${skill.deprecatedBy} does not resolve`,
-			});
+		if (skill.deprecatedBy) {
+			const targets = bySlug.get(skill.deprecatedBy) || [];
+			if (targets.length !== 1) {
+				errors.push({
+					kind: "missing-deprecation-target",
+					slug: skill.canonicalSlug,
+					severity: "error",
+					resolution: "fix-route-graph",
+					sourcePaths: [
+						skill.sourcePath,
+						...targets.map((target) => target.sourcePath),
+					],
+					message:
+						targets.length === 0
+							? `deprecated replacement ${skill.deprecatedBy} does not resolve`
+							: `deprecated replacement ${skill.deprecatedBy} resolves to ${targets.length} harness-specific sources and is ambiguous`,
+				});
+			}
 		}
 	}
 
@@ -598,6 +607,40 @@ function validateVisibilityGraph(skills: DiscoveredSkill[]): SourceDiagnostics {
 		visited.add(slug);
 	};
 	for (const slug of bySlug.keys()) visit(slug, []);
+
+	const deprecationVisiting = new Set<string>();
+	const deprecationVisited = new Set<string>();
+	const reportedDeprecationCycles = new Set<string>();
+	const visitDeprecation = (slug: string, path: string[]): void => {
+		if (deprecationVisiting.has(slug)) {
+			const start = path.indexOf(slug);
+			const cycle = [...path.slice(Math.max(0, start)), slug];
+			const key = [...new Set(cycle)].sort().join("|");
+			if (!reportedDeprecationCycles.has(key)) {
+				reportedDeprecationCycles.add(key);
+				errors.push({
+					kind: "deprecation-cycle",
+					slug,
+					severity: "error",
+					resolution: "fix-route-graph",
+					sourcePaths: cycle
+						.map((item) => bySlug.get(item)?.[0]?.sourcePath)
+						.filter((item): item is string => Boolean(item)),
+					message: `deprecation cycle detected: ${cycle.join(" -> ")}`,
+				});
+			}
+			return;
+		}
+		if (deprecationVisited.has(slug)) return;
+		deprecationVisiting.add(slug);
+		const target = bySlug.get(slug)?.[0]?.deprecatedBy;
+		if (target && bySlug.has(target)) {
+			visitDeprecation(target, [...path, slug]);
+		}
+		deprecationVisiting.delete(slug);
+		deprecationVisited.add(slug);
+	};
+	for (const slug of bySlug.keys()) visitDeprecation(slug, []);
 
 	return { warnings, errors };
 }

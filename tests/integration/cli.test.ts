@@ -1169,6 +1169,88 @@ test("projects receive only declared entrypoints while routed leaves remain reso
 	});
 });
 
+test("resolve follows a routed deprecated alias to its canonical skill", () => {
+	const { homeDir, projectsRoot } = makeFakeProjectsRoot();
+	tempPaths.push(homeDir);
+	const canonical = makeNestedSkill(
+		projectsRoot,
+		"prod-control",
+		"prod-control",
+		"prod-control",
+	);
+	writeText(
+		join(canonical, "SKILL.md"),
+		"---\nname: prod-control\ndescription: Production control plane\nmetadata:\n  skill-sync.visibility: global\n---\n",
+	);
+	const legacy = makeNestedSkill(projectsRoot, "legacy", "prod", "prod");
+	writeText(
+		join(legacy, "SKILL.md"),
+		"---\nname: prod\ndescription: Deprecated production alias\nmetadata:\n  skill-sync.visibility: routed\n  skill-sync.deprecated-by: prod-control\n---\n",
+	);
+
+	const resolved = runCli(
+		repoRoot,
+		[
+			"resolve",
+			"prod",
+			"--json",
+			"--home",
+			homeDir,
+			"--projects-root",
+			projectsRoot,
+		],
+		{},
+	);
+	expect(resolved.exitCode).toBe(0);
+	const report = JSON.parse(resolved.stdout.toString());
+	expect(report).toMatchObject({
+		requestedSlug: "prod",
+		slug: "prod-control",
+		deprecatedAliases: ["prod"],
+		visibility: "global",
+	});
+	expect(report.sourcePath).toEndWith(
+		"/projects/prod-control/skills/prod-control",
+	);
+});
+
+test("doctor rejects deprecation cycles", () => {
+	const { homeDir, projectsRoot } = makeFakeProjectsRoot();
+	tempPaths.push(homeDir);
+	const first = makeNestedSkill(projectsRoot, "aliases", "first", "first");
+	const second = makeNestedSkill(projectsRoot, "aliases", "second", "second");
+	writeText(
+		join(first, "SKILL.md"),
+		"---\nname: first\ndescription: First alias\nmetadata:\n  skill-sync.visibility: routed\n  skill-sync.deprecated-by: second\n---\n",
+	);
+	writeText(
+		join(second, "SKILL.md"),
+		"---\nname: second\ndescription: Second alias\nmetadata:\n  skill-sync.visibility: routed\n  skill-sync.deprecated-by: first\n---\n",
+	);
+
+	const doctor = runCli(
+		repoRoot,
+		[
+			"doctor",
+			"--json",
+			"--home",
+			homeDir,
+			"--projects-root",
+			projectsRoot,
+		],
+		{},
+	);
+	expect(doctor.exitCode).not.toBe(0);
+	const report = JSON.parse(doctor.stdout.toString());
+	expect(report.sourceDiagnostics.errors).toEqual(
+		expect.arrayContaining([
+			expect.objectContaining({
+				kind: "deprecation-cycle",
+			}),
+		]),
+	);
+});
+
 test("strict visibility prevents unclassified skills and over-budget globals from being projected", () => {
 	const { homeDir, projectsRoot } = makeFakeProjectsRoot();
 	tempPaths.push(homeDir);

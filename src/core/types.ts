@@ -116,6 +116,7 @@ export type SourceDiagnostic = {
 		| "unclassified-visibility"
 		| "missing-route"
 		| "route-cycle"
+		| "deprecation-cycle"
 		| "invalid-route-visibility"
 		| "missing-deprecation-target"
 		| "visibility-budget-exceeded"

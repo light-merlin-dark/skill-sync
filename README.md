@@ -125,6 +125,10 @@ skill-sync execute --project /path/to/project
 skill-sync resolve framework-admin --json
 ```
 
+`resolve` follows validated `skill-sync.deprecated-by` chains and reports both
+the requested alias and the final canonical slug/path. Missing, ambiguous, or
+cyclic replacements fail instead of returning stale guidance.
+
 Execute:
 
 ```bash

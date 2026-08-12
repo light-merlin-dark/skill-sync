@@ -1721,25 +1721,49 @@ cli
 			);
 			const harnesses = resolveHarnesses(runtime.homeDir, config);
 			const { skills } = discoverSkillSet(config, harnesses);
-			const slug = slugify(rawSlug);
-			const matches = skills.filter((skill) => skill.canonicalSlug === slug);
-			if (matches.length !== 1) {
-				throw new Error(
-					matches.length === 0
-						? `No discovered skill matches ${slug}`
-						: `Skill ${slug} is ambiguous across ${matches.length} sources`,
+			const requestedSlug = slugify(rawSlug);
+			const deprecationChain: string[] = [];
+			const visited = new Set<string>();
+			let resolvedSlug = requestedSlug;
+			let skill: DiscoveredSkill | undefined;
+			while (true) {
+				if (visited.has(resolvedSlug)) {
+					throw new Error(
+						`Deprecation cycle while resolving ${requestedSlug}: ${[
+							...deprecationChain,
+							resolvedSlug,
+						].join(" -> ")}`,
+					);
+				}
+				visited.add(resolvedSlug);
+				deprecationChain.push(resolvedSlug);
+				const matches = skills.filter(
+					(candidate) => candidate.canonicalSlug === resolvedSlug,
 				);
+				if (matches.length !== 1) {
+					throw new Error(
+						matches.length === 0
+							? `No discovered skill matches ${resolvedSlug}`
+							: `Skill ${resolvedSlug} is ambiguous across ${matches.length} sources`,
+					);
+				}
+				skill = matches[0];
+				if (!skill) {
+					throw new Error(`No discovered skill matches ${resolvedSlug}`);
+				}
+				if (!skill.deprecatedBy) break;
+				resolvedSlug = skill.deprecatedBy;
 			}
-			const skill = matches[0];
-			if (!skill) throw new Error(`No discovered skill matches ${slug}`);
 			const routedFrom = skills
-				.filter((candidate) => candidate.routes.includes(slug))
+				.filter((candidate) => candidate.routes.includes(resolvedSlug))
 				.map((candidate) => candidate.canonicalSlug)
 				.sort();
 			print(
 				{
 					schemaVersion: 1,
-					slug,
+					requestedSlug,
+					slug: resolvedSlug,
+					deprecatedAliases: deprecationChain.slice(0, -1),
 					visibility: skill.visibility,
 					skillFilePath: skill.skillFilePath,
 					sourcePath: skill.sourcePath,

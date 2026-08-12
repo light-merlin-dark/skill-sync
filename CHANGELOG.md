@@ -2,8 +2,14 @@
 
 ## Unreleased
 
+## 0.4.1 (2026-08-12)
+
 - Make release finalization resumable after a successful npm publish and poll
   boundedly for registry propagation before creating the matching tag/release.
+- Make `resolve` follow `metadata.skill-sync.deprecated-by` chains to the live
+  canonical skill, reject ambiguous replacement targets, and block deprecation
+  cycles before mutation. This makes skill renames preserve on-demand routing
+  without keeping a retired alias in startup indexes.
 
 ## 0.4.0 (2026-08-12)
 

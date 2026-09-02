@@ -742,6 +742,34 @@ function appendSourceDiagnostic(
 		return;
 	}
 
+	if (diagnostic.kind !== "duplicate-slug") {
+		// Every non-duplicate kind used to fall through to the duplicate-slug
+		// label — `visibility-budget-exceeded` rendered as "duplicate slug:
+		// global" listing every source on the machine (2026-09-02).
+		const label: Record<string, string> = {
+			"unclassified-visibility": "unclassified visibility",
+			"visibility-budget-exceeded": "visibility budget exceeded",
+			"invalid-route-visibility": "invalid route visibility",
+			"missing-route": "missing route",
+			"route-cycle": "route cycle",
+			"deprecation-cycle": "deprecation cycle",
+			"missing-deprecation-target": "missing deprecation target",
+			"unsupported-project-scope": "unsupported project scope",
+			"missing-project-guidance": "missing project guidance",
+		};
+		lines.push(`- ${label[diagnostic.kind] ?? diagnostic.kind}: ${diagnostic.slug}`);
+		for (const sourcePath of diagnostic.sourcePaths) {
+			lines.push(`  ${sourcePath}`);
+		}
+		if (diagnostic.message) {
+			lines.push(`  ${diagnostic.message}`);
+		}
+		if (diagnostic.resolution) {
+			lines.push(`  resolution: ${diagnostic.resolution}`);
+		}
+		return;
+	}
+
 	lines.push(`- duplicate slug: ${diagnostic.slug}`);
 	for (const sourcePath of diagnostic.sourcePaths) {
 		lines.push(`  ${sourcePath}`);

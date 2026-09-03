@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+## 0.4.4 (2026-09-03)
+
+- **An index-budget overage is now directional.** It withholds new installs —
+  the only action that adds startup surface — and lets repairs and removals
+  proceed. The budget estimate is a property of the discovered source set, so no
+  install, repair or removal is an input to it: refusing an entire plan froze
+  harness roots without moving the number, and could not in principle clear the
+  condition that caused the refusal. Removals now apply precisely because they
+  are how an overage clears.
+- **`execute` says when the budget withheld something.** It previously rendered
+  an ordinary summary, exited 3, and wrote nothing — indistinguishable from
+  success unless you read the JSON diagnostics. One harness root was found
+  serving a skill frozen for three weeks because every run had been silently
+  refused. There is now an `OVER BUDGET` block on stderr naming the measured
+  size, the ceiling, and each withheld install. JSON output is unchanged.
+- Conflicts and unclassified sources keep their existing behaviour exactly.
+
+## 0.4.3 (2026-09-02)
+
+- `doctor` renders every diagnostic kind by its own name; `unclassified-visibility`,
+  `visibility-budget-exceeded` and the route kinds previously fell through to the
+  duplicate-slug label, printing `duplicate slug: global` with every source listed
+  beneath it.
+
 ## 0.4.2 (2026-08-12)
 
 - Recognize Pi as a first-class alias of the shared Agent Skills adapter and

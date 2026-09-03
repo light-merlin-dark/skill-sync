@@ -15,6 +15,7 @@ import type {
 	HarnessTraversalDiagnostic,
 	InstallMode,
 	OrphanSkill,
+	PlannedAction,
 	PlannedEntry,
 	PlannedPollutedEntry,
 	SourceDiagnostics,
@@ -821,6 +822,73 @@ export function countPlanActions(plan: SyncPlan): Record<string, number> {
 
 export function hasConflicts(plan: SyncPlan): boolean {
 	return plan.conflicts > 0 || plan.sourceDiagnostics.errors.length > 0;
+}
+
+/**
+ * Actions that materialize additional startup surface in a harness root.
+ *
+ * `create` is the only one. A repair restores a managed link for a skill the
+ * root already lists; a replace swaps one managed layout for another; every
+ * removal shrinks the surface. None of them can grow the index, and the
+ * constitution's ceiling (§8) is a ceiling on what an agent reads at startup —
+ * not a reason to leave a root stale.
+ */
+/**
+ * Source errors that block every mutation, as opposed to the budget's
+ * directional refusal. An unclassified source has no visibility decision at
+ * all, so nothing about it can be projected safely at any size.
+ */
+export function hasBlockingSourceErrors(plan: SyncPlan): boolean {
+	return plan.sourceDiagnostics.errors.some(
+		(diagnostic) => diagnostic.kind !== "visibility-budget-exceeded",
+	);
+}
+
+const BUDGET_GROWTH_ACTIONS = new Set<PlannedAction>(["create"]);
+
+export function isBudgetGrowthAction(action: PlannedAction): boolean {
+	return BUDGET_GROWTH_ACTIONS.has(action);
+}
+
+/**
+ * Split a plan into the part that is safe to apply while over budget and the
+ * part that is not.
+ *
+ * Budgets are policy, not heuristics (constitution §8), and blocking before
+ * mutation stays. What changes is the blast radius. The ceiling is a property
+ * of the discovered global source set — no install, repair or removal moves it
+ * — so refusing an *entire* plan over budget froze roots without reducing a
+ * single token, and could not, even in principle, clear the condition that
+ * caused the refusal.
+ *
+ * Measured 2026-09-03: `execute --skill email-cli` was refused because 38
+ * unrelated skills exceeded the ceiling. The blocked action was replacing a
+ * stale copy with a symlink whose name and description were byte-identical, so
+ * the estimate was provably the same before and after. One harness root
+ * (`~/.agents/skills`, aliased by pi/cline/warp/amp/kimi-cli/replit) had been
+ * serving a three-week-old skill as a result.
+ *
+ * Over budget, we now refuse only what would materialize MORE surface, and let
+ * repairs and removals through — removals being the very thing that helps.
+ */
+export function withholdBudgetGrowth(plan: SyncPlan): {
+	plan: SyncPlan;
+	withheld: PlannedEntry[];
+} {
+	const withheld: PlannedEntry[] = [];
+	const harnesses = plan.harnesses.map((harnessPlan) => {
+		const entries = harnessPlan.entries.filter((entry) => {
+			if (!isBudgetGrowthAction(entry.action)) return true;
+			withheld.push(entry);
+			return false;
+		});
+		return { ...harnessPlan, entries };
+	});
+	if (withheld.length === 0) return { plan, withheld };
+	return {
+		plan: { ...plan, harnesses, changes: Math.max(0, plan.changes - withheld.length) },
+		withheld,
+	};
 }
 
 export function hasDrift(plan: SyncPlan): boolean {

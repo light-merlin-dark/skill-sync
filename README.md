@@ -42,7 +42,14 @@ and specialist leaves remain route-only until needed.
 Visibility-aware projection is implemented. `global` skills enter compatible
 user roots, `project` entrypoints enter only repositories that declare them,
 and `routed` leaves remain at their canonical source paths. Strict mode blocks
-unclassified sources and configured index-budget violations before mutation.
+unclassified sources before mutation.
+
+An index-budget overage is **directional**: it withholds new installs, which are
+the only actions that add startup surface, while repairs and removals still
+apply. The estimate is a property of your discovered source set, so freezing a
+harness cannot reduce it — and removals are how you get back under the ceiling.
+`execute` prints an `OVER BUDGET` block naming the measured size and every
+install it withheld, so a partly-applied plan is never mistaken for a clean one.
 
 ## What It Does
 
@@ -263,8 +270,9 @@ directly; SkillSync does not create a duplicate Pi-only mirror.
 - `doctor` never mutates
 - strict visibility excludes unclassified sources from desired plans and makes
   them blocking errors
-- strict execution also blocks global or project indexes above the configured
-  token budgets before any plan mutation
+- an index above the configured token budget withholds new installs before any
+  mutation, while repairs and removals still apply — the overage is a property
+  of your sources, so freezing a harness cannot clear it and removals can
 - project manifests are the only project-membership authority; `AGENTS.md`
   prose and dependency inference are not configuration
 - project `AGENTS.md` is linted for a matching `## Skill entrypoints` section

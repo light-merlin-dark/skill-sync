@@ -51,14 +51,17 @@ import {
 	cleanPollutedSymlinks,
 	countPlanActions,
 	findPollutedSymlinks,
+	hasBlockingSourceErrors,
 	hasConflicts,
 	hasDrift,
+	withholdBudgetGrowth,
 } from "./core/sync";
 import type {
 	DiscoveredSkill,
 	HarnessDefinition,
 	HarnessTraversalDiagnostic,
 	JsonValue,
+	PlannedEntry,
 	SourceDiagnostic,
 	SyncPlan,
 } from "./core/types";
@@ -1134,7 +1137,11 @@ cli
  * a skill frozen since 1 September for exactly this reason, and the operator
  * reasonably read the output as success.
  */
-function reportBudgetRefusal(plan: SyncPlan, json: boolean): void {
+function reportBudgetRefusal(
+	plan: SyncPlan,
+	withheld: PlannedEntry[],
+	json: boolean,
+): void {
 	if (json) return;
 	const overBudget = plan.sourceDiagnostics.errors.filter(
 		(diagnostic) => diagnostic.kind === "visibility-budget-exceeded",
@@ -1142,17 +1149,26 @@ function reportBudgetRefusal(plan: SyncPlan, json: boolean): void {
 	if (overBudget.length === 0) return;
 	const lines = [
 		"",
-		"REFUSED — nothing was written to any harness.",
+		"OVER BUDGET — new installs refused; repairs and removals still applied.",
 		...overBudget.map((diagnostic) => `  ${diagnostic.slug}: ${diagnostic.message}`),
 	];
-	if (plan.changes > 0) {
+	if (withheld.length > 0) {
 		lines.push(
-			`  ${plan.changes} planned change(s) were NOT applied and will stay unapplied until this clears.`,
+			`  ${withheld.length} new install(s) withheld until this clears:`,
+			...withheld
+				.slice(0, 8)
+				.map((entry) => `    ${entry.installName} -> ${entry.harnessId}`),
 		);
+		if (withheld.length > 8) {
+			lines.push(`    …and ${withheld.length - 8} more`);
+		}
+	} else {
+		lines.push("  No new installs were pending, so nothing was withheld.");
 	}
 	lines.push(
-		"  An over-budget index must fail before it mutates a harness. Reduce global",
-		"  visibility (`skill-sync doctor` lists the sources), or raise the budget.",
+		"  Reduce global visibility (`skill-sync doctor` lists the sources), or raise",
+		"  the budget in config. Removals apply while over budget precisely because",
+		"  they are how the condition clears.",
 		"",
 	);
 	process.stderr.write(`${lines.join("\n")}\n`);
@@ -1189,10 +1205,21 @@ function runExecute(options: GlobalOptions): void {
 					),
 				);
 			}
-			const blocked = hasConflicts(plan);
+			// Same directional rule as the global branch. A project-entrypoint
+			// overage withholds new installs; anything else keeps its old
+			// all-or-nothing block, which this branch has always had.
+			const overBudget = plan.sourceDiagnostics.errors.some(
+				(diagnostic) => diagnostic.kind === "visibility-budget-exceeded",
+			);
+			const budgetOnly =
+				overBudget && !hasBlockingSourceErrors(plan) && plan.conflicts === 0;
+			const blocked = hasConflicts(plan) && !budgetOnly;
+			const { plan: applicable, withheld } = budgetOnly
+				? withholdBudgetGrowth(plan)
+				: { plan, withheld: [] as PlannedEntry[] };
 			const nextState = blocked
 				? state
-				: applySyncPlan(plan, state, Boolean(options.dryRun));
+				: applySyncPlan(applicable, state, Boolean(options.dryRun));
 			if (!options.dryRun && !blocked) saveState(runtime, nextState);
 			print(
 				options.json
@@ -1203,7 +1230,9 @@ function runExecute(options: GlobalOptions): void {
 						}),
 				Boolean(options.json),
 			);
-			if (blocked) reportBudgetRefusal(plan, Boolean(options.json));
+			if (overBudget) {
+				reportBudgetRefusal(plan, withheld, Boolean(options.json));
+			}
 			if (hasConflicts(plan)) setExitCode(3);
 		});
 		return;
@@ -1213,10 +1242,21 @@ function runExecute(options: GlobalOptions): void {
 	const blockedByBudget = plan.sourceDiagnostics.errors.some(
 		(diagnostic) => diagnostic.kind === "visibility-budget-exceeded",
 	);
-	const nextState = blockedByBudget
-		? state
-		: applySyncPlan(plan, state, Boolean(options.dryRun));
-	if (!options.dryRun && !blockedByBudget) {
+	/*
+	 * A budget overage is DIRECTIONAL, not categorical.
+	 *
+	 * It says the startup surface is too large, so we withhold what would
+	 * materialize more of it and let repairs and removals through — removals
+	 * being how the condition actually clears. Refusing the whole plan froze
+	 * harness roots without moving the estimate by a single token, because no
+	 * install, repair or removal is an input to it. Conflicting entries are
+	 * still skipped individually inside applySyncPlan, exactly as before.
+	 */
+	const { plan: applicable, withheld } = blockedByBudget
+		? withholdBudgetGrowth(plan)
+		: { plan, withheld: [] as PlannedEntry[] };
+	const nextState = applySyncPlan(applicable, state, Boolean(options.dryRun));
+	if (!options.dryRun) {
 		saveState(runtime, nextState);
 	}
 	print(
@@ -1226,7 +1266,7 @@ function runExecute(options: GlobalOptions): void {
 		Boolean(options.json),
 	);
 	if (blockedByBudget) {
-		reportBudgetRefusal(plan, Boolean(options.json));
+		reportBudgetRefusal(plan, withheld, Boolean(options.json));
 	}
 	if (hasPlanConflicts) {
 		setExitCode(3);

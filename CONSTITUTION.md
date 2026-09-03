@@ -174,8 +174,22 @@ Fresh installations default to:
 - a 500-token estimated project-entrypoint ceiling.
 
 Budgets are configurable, but enforcement is deterministic. When strict mode is
-active, an unclassified skill or over-budget plan blocks before mutation.
-Disabling the gate is an explicit operator decision, not an automatic fallback.
+active, an unclassified skill blocks before mutation. Disabling the gate is an
+explicit operator decision, not an automatic fallback.
+
+**A budget overage is directional.** The ceiling bounds what an agent reads at
+startup, and that estimate is a property of the discovered source set: no
+install, repair or removal is an input to it. So an overage withholds the
+actions that would materialize *more* startup surface — new installs — and lets
+repairs and removals proceed. Removals are how the condition clears; refusing
+them protects nothing.
+
+Refusing an entire plan on an overage was the prior behaviour and it was wrong
+in a way that hid itself. Measured 2026-09-03: a single-skill `execute` was
+refused because unrelated skills exceeded the ceiling, and the withheld action
+was replacing a stale copy with a link whose name and description were
+byte-identical — provably the same estimate before and after. One harness root
+served a three-week-old skill as a result, while every run reported success.
 
 Index estimates measure startup metadata, not task-triggered skill bodies. The
 purpose is to keep routing choices relevant while preserving on-demand depth.

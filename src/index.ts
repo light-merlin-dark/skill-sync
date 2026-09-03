@@ -27,6 +27,7 @@ import {
 	removeHarness,
 	removeProjectsRoot,
 	saveState,
+	setDiscoveryPathPrefix,
 	setVisibilityBaseline,
 	setStrictVisibility,
 	setVisibilityBudgets,
@@ -784,7 +785,12 @@ function appendSourceDiagnostic(
 		lines.push(`  resolved by preference: ${diagnostic.chosenSourcePath}`);
 		return;
 	}
-	lines.push("  sync blocked until one source is excluded or preferred");
+	// Name the command, not just the concept. This line prescribed a remedy for
+	// which no CLI surface existed until 0.4.5, so the honest reading of the old
+	// wording was "stuck": the levers were config fields with no way to set them.
+	lines.push("  sync blocked until one source is excluded or preferred:");
+	lines.push(`    skill-sync config ignore-source ${diagnostic.sourcePaths[0]}`);
+	lines.push("    skill-sync config prefer-source <the source that should win>");
 }
 
 function appendHarnessDiagnostics(
@@ -2045,17 +2051,21 @@ cli
 	);
 
 cli
-	.command("config <action>", "Config commands: init, strict-visibility, visibility-budget")
+	.command(
+		"config <action> [path]",
+		"Config commands: init, strict-visibility, visibility-budget, ignore-source, prefer-source",
+	)
 	.option("--json", "Output JSON")
 	.option("--enable", "Enable the selected policy")
 	.option("--disable", "Disable the selected policy")
 	.option("--global <tokens>", "Maximum global skill-index tokens")
 	.option("--project <tokens>", "Maximum project entrypoint-index tokens")
+	.option("--remove", "Remove the given path instead of adding it")
 	.option(
 		"--home <path>",
 		"Override HOME for skill-sync state and harness resolution",
 	)
-	.action((action: string, options: GlobalOptions & { enable?: boolean; disable?: boolean; global?: string; project?: string }) => {
+	.action((action: string, path: string | undefined, options: GlobalOptions & { enable?: boolean; disable?: boolean; global?: string; project?: string; remove?: boolean }) => {
 		if (action === "strict-visibility") {
 			if (options.enable && options.disable) {
 				throw new Error("config strict-visibility cannot combine --enable and --disable");
@@ -2095,6 +2105,34 @@ cli
 						schemaVersion: 1,
 						maxGlobalIndexTokens: config.visibility.maxGlobalIndexTokens,
 						maxProjectIndexTokens: config.visibility.maxProjectIndexTokens,
+						configPath: runtime.configPath,
+					} as unknown as JsonValue,
+					Boolean(options.json),
+				);
+			});
+			return;
+		}
+		if (action === "ignore-source" || action === "prefer-source") {
+			const field =
+				action === "ignore-source" ? "ignorePathPrefixes" : "preferPathPrefixes";
+			withRuntime(options, (runtime) => {
+				const target = path;
+				if (!target) {
+					throw new Error(
+						`config ${action} requires a source path, e.g. \`skill-sync config ${action} ~/Projects/fork/skills/tool\``,
+					);
+				}
+				const config = setDiscoveryPathPrefix(
+					runtime,
+					field,
+					target,
+					Boolean(options.remove),
+				);
+				print(
+					{
+						schemaVersion: 1,
+						ignorePathPrefixes: config.discovery.ignorePathPrefixes,
+						preferPathPrefixes: config.discovery.preferPathPrefixes,
 						configPath: runtime.configPath,
 					} as unknown as JsonValue,
 					Boolean(options.json),

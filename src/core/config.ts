@@ -112,6 +112,35 @@ export function setVisibilityBudgets(
 	return config;
 }
 
+/**
+ * Add or remove a discovery path prefix.
+ *
+ * `ignorePathPrefixes` and `preferPathPrefixes` have always been honoured by
+ * discovery but had no command, so `doctor`'s own duplicate-slug remedy — "sync
+ * blocked until one source is excluded or preferred" — named an action the CLI
+ * could not perform. The usual cause is a vendored stub inside a fork competing
+ * with a curated skill of the same slug: editing the fork is the wrong fix
+ * because upstream overwrites it, so the exclusion belongs here, in local
+ * configuration.
+ */
+export function setDiscoveryPathPrefix(
+	runtime: RuntimeContext,
+	field: "ignorePathPrefixes" | "preferPathPrefixes",
+	rawPath: string,
+	remove: boolean,
+): Config {
+	const config = loadConfig(runtime);
+	const path = resolve(expandHomePath(rawPath, runtime.homeDir));
+	const current = config.discovery[field] || [];
+	config.discovery[field] = remove
+		? current.filter((entry) => resolve(entry) !== path)
+		: current.some((entry) => resolve(entry) === path)
+			? current
+			: [...current, path];
+	saveConfig(runtime, config);
+	return config;
+}
+
 function saveConfig(runtime: RuntimeContext, config: Config): void {
 	ensureDir(runtime.stateDir);
 	writeJsonFile(runtime.configPath, config);

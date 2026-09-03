@@ -123,6 +123,16 @@ skill-sync config strict-visibility --enable
 skill-sync config visibility-budget --global 4000 --project 500
 ```
 
+When two sources claim the same slug — commonly a fork's vendored stub competing
+with a curated skill — exclude one or prefer the other. The exclusion lives in
+your config, not in the other repository, so an upstream pull cannot undo it:
+
+```bash
+skill-sync config ignore-source ~/Projects/some-fork/skills/tool
+skill-sync config prefer-source ~/Projects/my-skills/skills/tool
+skill-sync config ignore-source ~/Projects/some-fork/skills/tool --remove
+```
+
 Declare and project a project entrypoint:
 
 ```bash

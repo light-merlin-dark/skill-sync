@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## 0.4.5 (2026-09-03)
+
+- **`config ignore-source` and `config prefer-source`.** `discovery.ignorePathPrefixes`
+  and `preferPathPrefixes` were always honoured but had no command, so `doctor`'s
+  own duplicate-slug remedy — "sync blocked until one source is excluded or
+  preferred" — prescribed an action the CLI could not perform. Both accept a
+  path, expand `~`, dedupe, and take `--remove`.
+- **`doctor` now prints the exact commands** under a blocking duplicate slug
+  instead of naming the concept and leaving you to find the lever.
+- Worked example this closed: a fork's vendored 925-character discovery stub was
+  competing with a curated 148-character skill of the same slug, both resolved
+  into the global index. Editing the fork would have been undone by the next
+  upstream pull; the exclusion belongs in local config. Excluding it removed the
+  duplicate-slug error and took the index from ~4,275 to 3,980 tokens.
+
 ## 0.4.4 (2026-09-03)
 
 - **An index-budget overage is now directional.** It withholds new installs —

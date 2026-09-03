@@ -1123,6 +1123,41 @@ cli
 		},
 	);
 
+/**
+ * Say out loud that the budget gate refused to write.
+ *
+ * The gate itself is constitutional and stays: an over-budget plan must fail
+ * before it mutates a harness. What was missing was the sentence. `execute`
+ * rendered "13 ok, 1 change(s), 0 conflict(s)" and exited 3 having written
+ * nothing, so a planned repair could sit unapplied indefinitely and look like
+ * an ordinary run — measured 2026-09-03, when one harness root had been serving
+ * a skill frozen since 1 September for exactly this reason, and the operator
+ * reasonably read the output as success.
+ */
+function reportBudgetRefusal(plan: SyncPlan, json: boolean): void {
+	if (json) return;
+	const overBudget = plan.sourceDiagnostics.errors.filter(
+		(diagnostic) => diagnostic.kind === "visibility-budget-exceeded",
+	);
+	if (overBudget.length === 0) return;
+	const lines = [
+		"",
+		"REFUSED — nothing was written to any harness.",
+		...overBudget.map((diagnostic) => `  ${diagnostic.slug}: ${diagnostic.message}`),
+	];
+	if (plan.changes > 0) {
+		lines.push(
+			`  ${plan.changes} planned change(s) were NOT applied and will stay unapplied until this clears.`,
+		);
+	}
+	lines.push(
+		"  An over-budget index must fail before it mutates a harness. Reduce global",
+		"  visibility (`skill-sync doctor` lists the sources), or raise the budget.",
+		"",
+	);
+	process.stderr.write(`${lines.join("\n")}\n`);
+}
+
 function runExecute(options: GlobalOptions): void {
 	if (options.project) {
 		withRuntime(options, (runtime) => {
@@ -1168,6 +1203,7 @@ function runExecute(options: GlobalOptions): void {
 						}),
 				Boolean(options.json),
 			);
+			if (blocked) reportBudgetRefusal(plan, Boolean(options.json));
 			if (hasConflicts(plan)) setExitCode(3);
 		});
 		return;
@@ -1189,6 +1225,9 @@ function runExecute(options: GlobalOptions): void {
 			: renderPlan(plan, { verbose: options.verbose || hasPlanConflicts, includeOrphans: false }),
 		Boolean(options.json),
 	);
+	if (blockedByBudget) {
+		reportBudgetRefusal(plan, Boolean(options.json));
+	}
 	if (hasPlanConflicts) {
 		setExitCode(3);
 	}

@@ -7,6 +7,7 @@ description: Sync local repo-backed agent skills across installed harnesses such
   harnesses and skills are currently detected.
 metadata:
   skill-sync.visibility: global
+  skill-sync.routes: find-skills
 ---
 
 # Skill Sync

@@ -256,7 +256,8 @@ and package contents must not contain:
 
 Use fixture-owned temporary paths, `$HOME`, `~/Projects`, or `/path/to/...` in
 public material. Machine-local evidence belongs in ignored files outside the
-Git and npm surfaces. CI must enforce this boundary.
+Git and npm surfaces. Local test and prepublication gates must enforce this
+boundary; GitHub Actions workflows are not used.
 
 ## 13. Acceptance gates
 

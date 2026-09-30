@@ -9,7 +9,6 @@
 Sync local repo-backed agent skills across Codex, Claude Code, Cursor, Gemini, Hermes, Grok, and more.
 ```
 
-[![CI](https://github.com/light-merlin-dark/skill-sync/actions/workflows/ci.yml/badge.svg)](https://github.com/light-merlin-dark/skill-sync/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/%40light-merlin-dark%2Fskill-sync)](https://www.npmjs.com/package/@light-merlin-dark/skill-sync)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 
@@ -17,8 +16,8 @@ Sync local repo-backed agent skills across Codex, Claude Code, Cursor, Gemini, H
 
 The CLI is tested on macOS and Linux with Node.js 20 or newer. Its paths are
 home-relative or user-configured; it does not assume a maintainer username or
-repository layout. Windows is not currently part of the release matrix because
-managed symlink behavior differs.
+repository layout. Windows remains unverified because managed symlink behavior
+differs.
 
 ## Why This Exists
 
@@ -493,18 +492,19 @@ bun run build
 
 ## Release
 
-Prepare and commit the intended version and changelog on `main`, then run:
+Run the local release-preparation gate against frozen source:
 
 ```bash
-make release
+npm ci
+npm run prepublishOnly
+git diff --exit-code
 ```
 
-The release target requires a clean local `main` that exactly matches
-`origin/main`. It dispatches the exact version and commit to the manual GitHub
-publish workflow, which runs the complete gate and publishes through npm trusted
-publishing without a long-lived npm token. After registry verification succeeds,
-the target creates the matching Git tag and GitHub release. Direct local npm
-publishing is deliberately disabled.
+The gate checks types, public hygiene, all tests, the build, and package contents.
+GitHub Actions workflows are not used. Publication is separate and currently
+disabled in `make publish` and `make release`; no replacement publishing path or
+long-lived registry token is configured. Unreleased changes are queued for a
+future release, not included in the currently published package.
 
 ## Positioning
 

@@ -21,6 +21,7 @@ describe("public repository hygiene", () => {
 		expect(tracked).not.toContain("docs/issue.md");
 		expect(tracked).not.toContain("docs/plan.md");
 		expect(tracked.some((file) => file.startsWith("inventory/"))).toBe(false);
+		expect(tracked.some((file) => file.startsWith(".github/workflows/"))).toBe(false);
 	});
 
 	test("keeps machine-local artifacts out of reachable history", () => {

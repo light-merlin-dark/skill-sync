@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Scope clean repairs to the exact requested harness and skill, preserving
+  unrelated projections and backing up removed links without following them.
+- Replace GitHub Actions with local prepublication checks; publication targets
+  remain disabled pending a separately approved publishing path.
+
 ## 0.4.5 (2026-09-03)
 
 - **`config ignore-source` and `config prefer-source`.** `discovery.ignorePathPrefixes`

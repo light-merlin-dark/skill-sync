@@ -33,15 +33,15 @@ npm run build
 
 ## Maintainer releases
 
-Release preparation and publication are separate. Commit the intended package
-version and changelog on `main`; do not let release automation manufacture or
-commit source changes. `make release` then requires local `main` to match
-`origin/main`, dispatches the exact commit to `.github/workflows/publish.yml`,
-waits for the trusted-publishing gate, verifies the public registry version, and
-only then creates the matching Git tag and GitHub release.
+Release preparation and publication are separate. Run `npm ci`, then
+`npm run prepublishOnly` against frozen source and inspect the package dry-run
+output. Verify `git diff --exit-code` after committing the intended source.
+These local gates replace GitHub Actions; do not add CI workflows.
 
-The npm package owner must configure that workflow as the package's trusted
-GitHub publisher. Do not add an npm write token to repository secrets.
+`make publish` and `make release` currently fail closed. A future publication
+requires a separately approved publishing path, with source, version, changelog,
+tag, and public registry metadata aligned. Do not substitute a long-lived
+registry token. Unreleased fixes remain queued until that publication occurs.
 
 The normative behavior is defined in [CONSTITUTION.md](./CONSTITUTION.md).
 

@@ -5,6 +5,7 @@ import {
 	readFileSync,
 	readlinkSync,
 	realpathSync,
+	renameSync,
 	symlinkSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
@@ -31,6 +32,7 @@ import {
 	nowIso,
 	pathOwnsEntry,
 	removePath,
+	writeJsonFile,
 } from "./utils";
 
 const DIRECTORY_SYMLINK_INSTALL_HARNESSES = new Set<string>();
@@ -957,15 +959,34 @@ export function cleanPollutedSymlinks(
 	polluted: PlannedPollutedEntry[],
 	state: State,
 	dryRun: boolean,
+	backupDir: string,
 ): State {
 	const nextState: State = {
 		version: state.version,
 		managedEntries: { ...state.managedEntries },
 	};
+	// Validate the complete admission set before moving anything. Never recurse
+	// into a replacement directory or follow the selected links during cleanup.
 	for (const entry of polluted) {
-		if (!dryRun) {
-			removePath(entry.destinationPath);
+		const current = inspectEntry(entry.destinationPath);
+		if (current.type !== "symlink" || current.resolvedTarget !== entry.resolvedTarget) {
+			throw new Error(`Cleanup entry changed: ${entry.destinationPath}`);
 		}
+	}
+	if (!dryRun && polluted.length > 0) {
+		ensureDir(backupDir);
+		writeJsonFile(join(backupDir, "manifest.json"), {
+			version: 1,
+			entries: polluted.map((entry, index) => ({
+				...entry,
+				linkTarget: readlinkSync(entry.destinationPath),
+				backupPath: join(backupDir, String(index)),
+				managedEntry: state.managedEntries[entry.destinationPath] ?? null,
+			})),
+		});
+	}
+	for (const [index, entry] of polluted.entries()) {
+		if (!dryRun) renameSync(entry.destinationPath, join(backupDir, String(index)));
 		delete nextState.managedEntries[entry.destinationPath];
 	}
 	return nextState;

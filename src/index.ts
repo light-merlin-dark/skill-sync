@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { mkdirSync, readFileSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
+import { randomUUID } from "node:crypto";
 import { cac } from "cac";
 import { createBackup, listBackups, restoreBackup } from "./core/backup";
 import { applyCacheBust, collectCacheBustTargets } from "./core/cache";
@@ -2259,7 +2260,8 @@ cli
 	)
 	.option("--json", "Output JSON")
 	.option("--dry-run", "Show polluted entries without removing them")
-	.option("--harness <id>", "Filter to one or more harness ids")
+	.option("--harness <id>", "Filter to exact harness roots (no inherited bridge)")
+	.option("--skill <slug>", "Filter to one exact installed skill name; requires --harness")
 	.option(
 		"--home <path>",
 		"Override HOME for skill-sync state and harness resolution",
@@ -2268,9 +2270,25 @@ cli
 		withRuntime(options, (runtime) => {
 			const config = loadConfig(runtime);
 			const allHarnesses = resolveHarnesses(runtime.homeDir, config);
-			const harnesses = resolveSelectedHarnesses(allHarnesses, options);
+			const selectedIds = normalizeList(options.harness);
+			const selectedSkills = normalizeList(options.skill);
+			if (selectedSkills.length > 0 && selectedIds.length !== 1) {
+				throw new Error("clean --skill requires exactly one --harness");
+			}
+			if (selectedSkills.length > 1 || selectedSkills.some((name) => name !== slugify(name))) {
+				throw new Error("clean --skill requires one exact skill slug");
+			}
+			for (const id of selectedIds) {
+				if (!allHarnesses.some((harness) => harness.id === id || harness.aliases?.includes(id))) {
+					throw new Error(`Unknown harness: ${id}`);
+				}
+			}
+			const harnesses = filterHarnesses(allHarnesses, selectedIds);
 			const state = loadState(runtime);
-			const polluted = findPollutedSymlinks(harnesses, state);
+			const polluted = findPollutedSymlinks(harnesses, state).filter(
+				(entry) => selectedSkills.length === 0 || selectedSkills.includes(entry.installName),
+			);
+			const backupDir = resolvePath(runtime.stateDir, "clean-backups", randomUUID());
 
 			if (options.json) {
 				if (options.dryRun) {
@@ -2283,9 +2301,9 @@ cli
 						true,
 					);
 				} else {
-					const nextState = cleanPollutedSymlinks(polluted, state, false);
+					const nextState = cleanPollutedSymlinks(polluted, state, false, backupDir);
 					saveState(runtime, nextState);
-					print({ removed: polluted.length } as unknown as JsonValue, true);
+					print({ removed: polluted.length, backupDir: polluted.length ? backupDir : null } as unknown as JsonValue, true);
 				}
 				return;
 			}
@@ -2309,10 +2327,10 @@ cli
 				return;
 			}
 
-			const nextState = cleanPollutedSymlinks(polluted, state, false);
+			const nextState = cleanPollutedSymlinks(polluted, state, false, backupDir);
 			saveState(runtime, nextState);
 			console.log(
-				`\nRemoved ${polluted.length} polluted symlink(s). Re-run 'skill-sync execute' to restore clean links.`,
+				`\nRemoved ${polluted.length} polluted symlink(s). Preserved links and restore metadata: ${backupDir}. Re-run 'skill-sync execute' to restore clean links.`,
 			);
 		});
 	});

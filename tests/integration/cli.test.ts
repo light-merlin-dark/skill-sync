@@ -4,6 +4,7 @@ import {
 	lstatSync,
 	mkdirSync,
 	readFileSync,
+	readlinkSync,
 	rmSync,
 	statSync,
 	symlinkSync,
@@ -915,7 +916,7 @@ test("doctor reports and execute removes unmanaged top-level directory symlinks"
 	expect(existsSync(join(codexRoot, "legacy-folder-skill"))).toBe(false);
 });
 
-test("clean detects and removes unmanaged top-level directory symlinks even when not state-tracked", () => {
+test("clean admits only the exact harness and skill and preserves removed links", () => {
 	const { homeDir } = makeFakeProjectsRoot();
 	tempPaths.push(homeDir);
 
@@ -924,6 +925,9 @@ test("clean detects and removes unmanaged top-level directory symlinks even when
 	mkdirSync(legacySource, { recursive: true });
 	writeText(join(legacySource, "README.md"), "legacy folder");
 	symlinkSync(legacySource, join(codexRoot, "legacy-folder-skill"));
+	const agentsRoot = makeHarnessRoot(homeDir, ".agents/skills");
+	symlinkSync(legacySource, join(agentsRoot, "legacy-folder-skill"));
+	symlinkSync(legacySource, join(codexRoot, "unrelated"));
 
 	const dryRun = runCli(
 		repoRoot,
@@ -932,20 +936,33 @@ test("clean detects and removes unmanaged top-level directory symlinks even when
 	);
 	expect(dryRun.exitCode).toBe(0);
 	const parsedDryRun = JSON.parse(dryRun.stdout.toString());
-	expect(parsedDryRun.count).toBe(1);
+	expect(parsedDryRun.count).toBe(2);
 	expect(parsedDryRun.polluted[0]?.destinationPath).toBe(
 		join(codexRoot, "legacy-folder-skill"),
 	);
 
 	const cleaned = runCli(
 		repoRoot,
-		["clean", "--home", homeDir, "--harness", "codex", "--json"],
+		["clean", "--home", homeDir, "--harness", "codex", "--skill", "legacy-folder-skill", "--json"],
 		{},
 	);
 	expect(cleaned.exitCode).toBe(0);
 	const parsedCleaned = JSON.parse(cleaned.stdout.toString());
 	expect(parsedCleaned.removed).toBe(1);
 	expect(existsSync(join(codexRoot, "legacy-folder-skill"))).toBe(false);
+	expect(readlinkSync(join(parsedCleaned.backupDir, "0"))).toBe(legacySource);
+	const manifest = JSON.parse(readFileSync(join(parsedCleaned.backupDir, "manifest.json"), "utf8"));
+	expect(manifest.entries).toHaveLength(1);
+	expect(manifest.entries[0].linkTarget).toBe(legacySource);
+	expect(existsSync(join(agentsRoot, "legacy-folder-skill"))).toBe(true);
+	expect(existsSync(join(codexRoot, "unrelated"))).toBe(true);
+	expect(existsSync(join(legacySource, "README.md"))).toBe(true);
+	for (const args of [["--skill", "legacy-folder-skill"], ["--harness", "unknown"], ["--harness", "codex", "--skill", "../unsafe"]]) {
+		const rejected = runCli(repoRoot, ["clean", "--home", homeDir, ...args, "--json"], {});
+		expect(rejected.exitCode).not.toBe(0);
+	}
+	const noMatch = runCli(repoRoot, ["clean", "--home", homeDir, "--harness", "codex", "--skill", "absent", "--json"], {});
+	expect(JSON.parse(noMatch.stdout.toString()).removed).toBe(0);
 });
 
 test("repair-sources restores broken nested SKILL.md symlinks from pre-migration backups", () => {

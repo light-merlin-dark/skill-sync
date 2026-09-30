@@ -291,7 +291,7 @@ directly; SkillSync does not create a duplicate Pi-only mirror.
 - project projections are generated state; commit the manifest and ignore
   `.agents/skills/`
 - `execute` / `sync` replace managed or missing entries, and prune top-level harness symlinks that point to directories
-- `clean` scans selected harness roots directly (not only state-tracked entries) and removes top-level directory symlinks that pollute parsers
+- `clean` scans selected harness roots directly (not only state-tracked entries) and removes top-level directory symlinks that pollute parsers. Harness selection is exact: selecting Codex never cleans the inherited Agents root. Use `clean --harness codex --skill example --dry-run --json` before targeted cleanup; `--skill` requires one harness and matches one exact installed name. Applied cleanup moves only admitted links into the reported `backupDir`, preserving their raw link targets and managed-state metadata in `manifest.json`. To restore an individual link, recreate its recorded `linkTarget` at `destinationPath` only after verifying that destination is absent (relative targets are relative to the original destination).
 - unmanaged conflicts are reported, not overwritten
 - duplicate `_dev` slugs are surfaced before harness-level sync planning
 - harness-local implementations with the same slug and disjoint destination
